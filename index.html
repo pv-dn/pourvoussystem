@@ -2188,11 +2188,32 @@ function hideLoginScreen(){
 }
 window.hideLoginScreen=hideLoginScreen;
 
+function setUserProfile(prof,email){
+  window._userShortId=prof?.shortId||"";
+  window._userDisplayName=prof?.displayName||(email||"").split("@")[0]||"";
+  const hu=document.getElementById("header-user");
+  if(hu)hu.textContent=(window._userShortId?`[${window._userShortId}] `:"")+window._userDisplayName;
+}
+
+async function restoreUserProfileFromSession(){
+  const user=window._currentUser;
+  if(!user)return;
+  let retries=0;
+  while(typeof window._getUserProfiles!=="function"&&retries<20){
+    await new Promise(r=>setTimeout(r,200));
+    retries++;
+  }
+  const profiles=await window._getUserProfiles().catch(()=>[]);
+  const prof=profiles.find(p=>p.uid===user.uid);
+  setUserProfile(prof,user.email||"");
+}
+
 async function bootApp(){
   if(window._appStarted||window._booting)return;
   window._booting=true;
   try{
     if(window._startFirestoreSync)await window._startFirestoreSync();
+    await restoreUserProfileFromSession();
     if(typeof window._appStart==="function")await window._appStart();
     window._appStarted=true;
     hideLoginScreen();
@@ -2240,10 +2261,7 @@ async function doLogin(){
       try{
         const cred=await window._signIn(email,password);
         const user=cred.user;
-        window._userShortId=prof.shortId||"";
-        window._userDisplayName=prof.displayName||email.split("@")[0];
-        const hu=document.getElementById("header-user");
-        if(hu)hu.textContent=(window._userShortId?`[${window._userShortId}] `:"")+window._userDisplayName;
+        setUserProfile(prof,email);
         if(prof.shortId!=="AD") await window._saveLoginLog(user.uid,email,window._userDisplayName);
         loggedIn=true;
         break;
