@@ -74,18 +74,11 @@ window._getUserProfiles = async function() {
 onAuthStateChanged(auth, (user) => {
   window._currentUser = user;
   if (!user) {
-    // 未ログイン→ログイン画面を表示
-    showLoginScreen();
-  } else {
-    // ログイン済み→アプリ起動
-    if (typeof window._appStart === "function" && !window._appStarted) {
-      window._appStarted = true;
-      if(window._startFirestoreSync){
-        window._startFirestoreSync().then(()=>window._appStart());
-      } else {
-        window._appStart();
-      }
-    }
+    window._appStarted = false;
+    window._booting = false;
+    if (typeof window.showLoginScreen === "function") window.showLoginScreen();
+  } else if (!window._manualLoginInProgress && typeof window.bootApp === "function") {
+    window.bootApp();
   }
 });
 
@@ -401,7 +394,7 @@ function renameCustomerData(oldName,newName){
 }
 function applyShakoCustomerNameFix(){
   const c=state.customers.find(x=>x.id==="032")||state.customers.find(x=>{const n=normName(x.name);return n.includes("写光")&&n.includes("横浜");});
-  if(!c||c.name===SHAKO_YOKOHAMA_CUSTOMER)return;
+  if(!c||normName(c.name)===normName(SHAKO_YOKOHAMA_CUSTOMER))return;
   if(!normName(c.name).includes("写光"))return;
   const oldName=c.name;
   renameCustomerData(oldName,SHAKO_YOKOHAMA_CUSTOMER);
@@ -412,11 +405,11 @@ function applyShakoCustomerNameFix(){
   save("pv_history",state.history);
   saveCycles();
   if(window._fsSave){
-    window._fsSave("pv_customers",state.customers);
-    window._fsSave("pv_min",state.minG);
-    window._fsSave("pv_closing_days",state.closingDays);
-    window._fsSave("pv_prices",state.prices);
-    window._fsSave("pv_history",state.history);
+    window._fsSave("pv_customers",state.customers).catch(()=>{});
+    window._fsSave("pv_min",state.minG).catch(()=>{});
+    window._fsSave("pv_closing_days",state.closingDays).catch(()=>{});
+    window._fsSave("pv_prices",state.prices).catch(()=>{});
+    window._fsSave("pv_history",state.history).catch(()=>{});
   }
 }
 
@@ -2186,18 +2179,45 @@ function showLoginScreen(){
   const appLayout=document.getElementById("app-layout");
   if(appLayout)appLayout.style.display="none";
 }
+window.showLoginScreen=showLoginScreen;
 function hideLoginScreen(){
   document.getElementById("login-screen").classList.add("hidden");
   document.querySelector(".header").style.display="";
   const appLayout=document.getElementById("app-layout");
   if(appLayout)appLayout.style.display="";
 }
+window.hideLoginScreen=hideLoginScreen;
+
+async function bootApp(){
+  if(window._appStarted||window._booting)return;
+  window._booting=true;
+  try{
+    if(window._startFirestoreSync)await window._startFirestoreSync();
+    if(typeof window._appStart==="function")await window._appStart();
+    window._appStarted=true;
+    hideLoginScreen();
+  }catch(e){
+    console.error("bootApp error",e);
+    window._appStarted=false;
+    const errEl=document.getElementById("login-error");
+    if(errEl){
+      errEl.style.color="#c62828";
+      errEl.textContent="起動エラー："+(e.message||"不明なエラー");
+    }
+    showLoginScreen();
+  }finally{
+    window._booting=false;
+  }
+}
+window.bootApp=bootApp;
+
 async function doLogin(){
   const password=document.getElementById("login-password").value;
   const errEl=document.getElementById("login-error");
   errEl.textContent="";
   errEl.style.color="#c62828";
   if(!password){errEl.textContent="パスワードを入力してください";return;}
+  window._manualLoginInProgress=true;
   try{
     let retries=0;
     while(typeof window._getUserProfiles!=="function"&&retries<20){
@@ -2225,12 +2245,6 @@ async function doLogin(){
         const hu=document.getElementById("header-user");
         if(hu)hu.textContent=(window._userShortId?`[${window._userShortId}] `:"")+window._userDisplayName;
         if(prof.shortId!=="AD") await window._saveLoginLog(user.uid,email,window._userDisplayName);
-        hideLoginScreen();
-        if(!window._appStarted){
-          window._appStarted=true;
-          await window._startFirestoreSync();
-          window._fsInitPromise.then(()=>window._appStart());
-        }
         loggedIn=true;
         break;
       }catch(e){
@@ -2244,15 +2258,20 @@ async function doLogin(){
       }
     }
     if(!loggedIn&&!rateLimited){errEl.textContent="パスワードが正しくありません";}
+    else if(loggedIn)await bootApp();
   }catch(e){
     console.error("Login error:",e.code,e.message);
     errEl.textContent="エラー："+(e.code||e.message||"不明なエラー");
+  }finally{
+    window._manualLoginInProgress=false;
   }
 }
 async function doLogout(){
   if(!confirm("ログアウトしますか？"))return;
   await window._signOut();
   window._appStarted=false;
+  window._booting=false;
+  window._manualLoginInProgress=false;
   window._userShortId="";
   window._userDisplayName="";
   showLoginScreen();
@@ -2625,14 +2644,14 @@ window._appStart = async function() {
   window._state=state;
   const keys=[["pv_customers","customers"],["pv_products","products"],["pv_prices","prices"],["pv_history","history"],["pv_invoice_counters","invoiceCounters"],["pv_closing_days","closingDays"],["pv_min","minG"]];
   keys.forEach(([k,prop])=>{const v=localStorage.getItem(k);if(v)try{state[prop]=JSON.parse(v);}catch{}});
-  applyShakoCustomerNameFix();
-  await loadAdminPass();
+  try{applyShakoCustomerNameFix();}catch(e){console.warn("applyShakoCustomerNameFix",e);}
+  try{await loadAdminPass();}catch(e){console.warn("loadAdminPass",e);}
+  if(!state.issue)state.issue={customer:"",freeCustomer:false,deliveryDate:"",deliverySite:"",items:[],customItems:[{name:"",qty:"",price:""}],useCustom:false,memo:""};
+  if(state.issue.deliverySite===undefined)state.issue.deliverySite="";
   render();
   if(!sessionStorage.getItem("pv_unissued_prompted")){
     const alerts=getUnissuedAlerts();
-    if(alerts.length>0){
-      sessionStorage.setItem("pv_unissued_prompted","1");
-    }
+    if(alerts.length>0)sessionStorage.setItem("pv_unissued_prompted","1");
   }
 };
 // Firebaseの初期化が終わっていなければ待つ（通常はmoduleが先に処理される）
