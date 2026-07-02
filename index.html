@@ -236,6 +236,28 @@ td{padding:9px 8px;border-bottom:.5px solid #f0ede8;font-size:13px;overflow:hidd
 #unissued-alert-bar .alert-bar-btn{background:#fff;color:#b91c1c;border:none;padding:10px 22px;border-radius:8px;font-weight:700;cursor:pointer;font-size:14px;white-space:nowrap;box-shadow:0 2px 8px rgba(0,0,0,.15)}
 #unissued-alert-bar .alert-bar-btn:hover{background:#fff5f5}
 #unissued-modal .unissued-modal-header{background:linear-gradient(90deg,#b91c1c,#dc2626);color:#fff;margin:-24px -24px 20px;padding:18px 24px;border-radius:12px 12px 0 0}
+/* 2カラム：未発行サイドバー */
+.app-layout{display:flex;max-width:1380px;margin:0 auto;padding:0 20px;gap:20px;align-items:flex-start}
+.app-layout:not(.has-sidebar){max-width:1100px}
+.unissued-sidebar{width:300px;flex-shrink:0;display:none;position:sticky;top:16px;max-height:calc(100vh - 24px);overflow-y:auto}
+.unissued-sidebar-card{background:#fff;border-radius:12px;border:2px solid #fca5a5;box-shadow:0 4px 16px rgba(220,38,38,.12);overflow:hidden}
+.unissued-sidebar-head{background:linear-gradient(135deg,#b91c1c,#dc2626);color:#fff;padding:14px 16px}
+.unissued-sidebar-head h3{font-size:15px;font-weight:700;margin:0 0 4px}
+.unissued-sidebar-head p{font-size:12px;margin:0;opacity:.9}
+.unissued-sidebar-list{padding:8px}
+.unissued-sidebar-item{display:block;width:100%;text-align:left;background:#fff;border:1px solid #f0ede8;border-radius:8px;padding:10px 12px;margin-bottom:8px;cursor:pointer;font-family:inherit;transition:background .15s,border-color .15s}
+.unissued-sidebar-item:hover{background:#fff5f5;border-color:#fca5a5}
+.unissued-sidebar-item:last-child{margin-bottom:0}
+.unissued-sidebar-name{font-size:13px;font-weight:600;color:#1a1a2e;line-height:1.4;margin-bottom:6px;word-break:break-all}
+.unissued-sidebar-meta{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:11px;color:#666}
+.unissued-sidebar-badge{padding:2px 8px;border-radius:999px;font-size:11px;font-weight:700;flex-shrink:0}
+.unissued-sidebar-badge.today{background:#fef3c7;color:#92400e}
+.unissued-sidebar-badge.tomorrow{background:#dbeafe;color:#1e40af}
+.app-layout .content{flex:1;min-width:0;max-width:none;margin:0;padding:24px 0 32px}
+@media(max-width:960px){
+  .app-layout{flex-direction:column;padding:0 16px}
+  .unissued-sidebar{width:100%;position:relative;top:auto;max-height:none}
+}
 
 </style>
 </head>
@@ -279,7 +301,10 @@ td{padding:9px 8px;border-bottom:.5px solid #f0ede8;font-size:13px;overflow:hidd
 </div>
 <div id="unissued-alert-bar"></div>
 <div id="toast" class="toast hidden"></div>
-<div class="content" id="main"></div>
+<div class="app-layout" id="app-layout">
+  <aside id="unissued-sidebar" class="unissued-sidebar" aria-label="未発行一覧"></aside>
+  <div class="content" id="main"></div>
+</div>
 <div id="print-modal" class="overlay hidden"></div>
 
 <script>
@@ -390,9 +415,13 @@ function updateUnissuedAlerts(){
   const bar=document.getElementById("unissued-alert-bar");
   const bellWrap=document.getElementById("alert-bell-wrap");
   const bellBtn=document.getElementById("alert-bell-btn");
+  const layout=document.getElementById("app-layout");
+  const sidebar=document.getElementById("unissued-sidebar");
   if(!window._currentUser){
     if(bar)bar.style.display="none";
     if(bellWrap)bellWrap.style.display="none";
+    if(sidebar)sidebar.style.display="none";
+    if(layout)layout.classList.remove("has-sidebar");
     return;
   }
   const alerts=getUnissuedAlerts();
@@ -409,14 +438,32 @@ function updateUnissuedAlerts(){
       bellBtn.className="alert-active";
       bellBtn.textContent=`⚠️ 未発行 ${count}件`;
     }
-    if(bar){
-      bar.style.display="flex";
-      bar.innerHTML=`<span class="alert-bar-icon">⚠️</span><span class="alert-bar-text"><strong>伝票が未発行の客先があります（${count}件）</strong> — ${detail}。納品サイクル上、発行が必要です。</span><button type="button" class="alert-bar-btn" onclick="showUnissuedModal()">一覧を確認する</button>`;
+    if(bar)bar.style.display="none";
+    if(layout)layout.classList.add("has-sidebar");
+    if(sidebar){
+      sidebar.style.display="block";
+      const items=alerts.map(a=>`
+        <button type="button" class="unissued-sidebar-item" onclick="selectCustomerFromSidebar(${JSON.stringify(a.customer)},${JSON.stringify(a.dateStr)})">
+          <div class="unissued-sidebar-name">${a.customer}</div>
+          <div class="unissued-sidebar-meta">
+            <span>${fmtDate(a.date)}（${a.dayName}）</span>
+            <span class="unissued-sidebar-badge ${a.label==="本日"?"today":"tomorrow"}">${a.label}</span>
+          </div>
+        </button>`).join("");
+      sidebar.innerHTML=`<div class="unissued-sidebar-card">
+        <div class="unissued-sidebar-head">
+          <h3>⚠️ 未発行 ${count}件</h3>
+          <p>${detail}</p>
+        </div>
+        <div class="unissued-sidebar-list">${items}</div>
+      </div>`;
     }
   }else{
     if(bellWrap)bellWrap.style.display="none";
     if(bellBtn)bellBtn.className="";
     if(bar)bar.style.display="none";
+    if(sidebar)sidebar.style.display="none";
+    if(layout)layout.classList.remove("has-sidebar");
   }
 }
 
@@ -1860,7 +1907,7 @@ function showUnissuedModal(){
       <td style="padding:10px 12px;color:#555">${fmtDate(a.date)}（${a.dayName}）</td>
       <td style="padding:10px 12px"><span style="background:${a.label==='本日'?'#fef3c7':'#dbeafe'};color:${a.label==='本日'?'#92400e':'#1e40af'};padding:2px 8px;border-radius:999px;font-size:12px;font-weight:700">${a.label}</span></td>
       <td style="padding:10px 12px">
-        <button onclick="selectCustomerAndClose('${a.customer.replace(/'/g,"\'")}');closeUnissuedModal()" style="background:#1a1a2e;color:#e8d5b7;border:none;padding:5px 12px;border-radius:6px;cursor:pointer;font-size:12px">発行する</button>
+        <button onclick="selectCustomerFromSidebar(${JSON.stringify(a.customer)},${JSON.stringify(a.dateStr)});closeUnissuedModal()" style="background:#1a1a2e;color:#e8d5b7;border:none;padding:5px 12px;border-radius:6px;cursor:pointer;font-size:12px">発行する</button>
       </td>
     </tr>`).join("");
   const modal=document.createElement("div");
@@ -1891,13 +1938,20 @@ function closeUnissuedModal(){
   if(m)m.remove();
 }
 
-function selectCustomerAndClose(customerName){
+function selectCustomerFromSidebar(customerName,dateStr){
+  state.issue.freeCustomer=false;
   state.issue.customer=customerName;
-  state.issue.freeCustomer="";
-  // 納品日を自動セット
-  const nextDt=nextDelivery(customerName);
-  state.issue.deliveryDate=toInput(nextDt);
-  setTab(0);
+  state.issue.deliveryDate=dateStr||toInput(nextDelivery(customerName));
+  const cp=state.prices.filter(p=>p.customer===customerName);
+  state.issue.items=cp.map(p=>({...p,qty:""}));
+  state.issue.useCustom=cp.length===0;
+  state.tab=0;
+  render();
+}
+
+function selectCustomerAndClose(customerName,dateStr){
+  selectCustomerFromSidebar(customerName,dateStr);
+  closeUnissuedModal();
 }
 // ===== /未発行アラート =====
 
@@ -1920,12 +1974,14 @@ function showLoginScreen(){
   document.querySelector(".header").style.display="none";
   const alertBar=document.getElementById("unissued-alert-bar");
   if(alertBar)alertBar.style.display="none";
-  document.getElementById("main").style.display="none";
+  const appLayout=document.getElementById("app-layout");
+  if(appLayout)appLayout.style.display="none";
 }
 function hideLoginScreen(){
   document.getElementById("login-screen").classList.add("hidden");
   document.querySelector(".header").style.display="";
-  document.getElementById("main").style.display="";
+  const appLayout=document.getElementById("app-layout");
+  if(appLayout)appLayout.style.display="";
 }
 async function doLogin(){
   const password=document.getElementById("login-password").value;
@@ -2366,7 +2422,6 @@ window._appStart = async function() {
     const alerts=getUnissuedAlerts();
     if(alerts.length>0){
       sessionStorage.setItem("pv_unissued_prompted","1");
-      setTimeout(()=>showUnissuedModal(),600);
     }
   }
 };
