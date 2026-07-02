@@ -388,11 +388,21 @@ function formatTierLabel(rec){
   }).join(" / ");
 }
 function findPriceRecord(customer,code){return state.prices.find(p=>p.customer===customer&&p.code===code);}
+function normName(s){return(s||"").replace(/\s+/g,"");}
+function isShakoYokohamaCustomer(name){
+  const n=normName(name);
+  return n.includes("写光")&&n.includes("横浜");
+}
+function isCurtainPriceRecord(p){
+  if(!p)return false;
+  if(normName(p.name).includes("カーテン"))return true;
+  const prod=state.products.find(x=>x.code===p.code);
+  return !!(prod&&normName(prod.name).includes("カーテン"));
+}
 function applyQtyTierPresets(){
-  const custName="写光レンタル販売横浜センター";
   let changed=false;
   state.prices.forEach(p=>{
-    if(p.customer===custName&&p.name&&p.name.includes("カーテン")&&!hasQtyTiers(p)){
+    if(isShakoYokohamaCustomer(p.customer)&&isCurtainPriceRecord(p)&&!hasQtyTiers(p)){
       p.qtyTiers=CURTAIN_QTY_TIERS.map(t=>({...t}));
       p.price=630;
       changed=true;
