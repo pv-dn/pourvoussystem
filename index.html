@@ -246,6 +246,7 @@ td{padding:9px 8px;border-bottom:.5px solid #f0ede8;font-size:13px;overflow:hidd
 .unissued-sidebar-badge{padding:2px 8px;border-radius:999px;font-size:11px;font-weight:700;flex-shrink:0}
 .unissued-sidebar-badge.today{background:#fef3c7;color:#92400e}
 .unissued-sidebar-badge.tomorrow{background:#dbeafe;color:#1e40af}
+.unissued-sidebar-badge.yesterday{background:#fee2e2;color:#991b1b}
 .app-layout .content{flex:1;min-width:0;max-width:none;margin:0;padding:24px 0 32px}
 @media(max-width:960px){
   .app-layout{flex-direction:column;padding:0 16px}
@@ -486,10 +487,13 @@ function updateUnissuedAlerts(){
   if(count>0){
     const todayCount=alerts.filter(a=>a.label==="本日").length;
     const tomorrowCount=alerts.filter(a=>a.label==="明日").length;
+    const yesterdayCount=alerts.filter(a=>a.label==="昨日").length;
     let detail="";
-    if(todayCount&&tomorrowCount)detail=`本日${todayCount}件・明日${tomorrowCount}件`;
-    else if(todayCount)detail=`本日納品 ${todayCount}件`;
-    else detail=`明日納品 ${tomorrowCount}件`;
+    const parts=[];
+    if(yesterdayCount)parts.push(`昨日${yesterdayCount}件`);
+    if(todayCount)parts.push(`本日${todayCount}件`);
+    if(tomorrowCount)parts.push(`明日${tomorrowCount}件`);
+    detail=parts.join("・");
     if(bellWrap&&bellBtn){
       bellWrap.style.display="block";
       bellBtn.className="alert-active";
@@ -504,7 +508,7 @@ function updateUnissuedAlerts(){
           <div class="unissued-sidebar-name">${a.customer}</div>
           <div class="unissued-sidebar-meta">
             <span>${fmtDate(a.date)}（${a.dayName}）</span>
-            <span class="unissued-sidebar-badge ${a.label==="本日"?"today":"tomorrow"}">${a.label}</span>
+            <span class="unissued-sidebar-badge ${a.label==="本日"?"today":a.label==="昨日"?"yesterday":"tomorrow"}">${a.label}</span>
           </div>
         </button>`).join("");
       sidebar.innerHTML=`<div class="unissued-sidebar-card">
@@ -2059,9 +2063,11 @@ function closePrint(){state.showPrint=false;state.printInvoice=null;document.get
 // ===== 未発行アラート =====
 function getUnissuedAlerts(){
   const today=new Date();
+  const yesterday=new Date(today);
+  yesterday.setDate(today.getDate()-1);
   const tomorrow=new Date(today);
   tomorrow.setDate(today.getDate()+1);
-  const targets=[today,tomorrow];
+  const targets=[yesterday,today,tomorrow];
   const result=[];
   state.customers.forEach(c=>{
     const cycle=DELIVERY_CYCLES[c.name];
@@ -2078,8 +2084,9 @@ function getUnissuedAlerts(){
         return hDate===dateStr;
       });
       if(!issued){
-        const isToday=toInput(dt)===toInput(today);
-        result.push({customer:c.name,date:dt,dateStr,label:isToday?"本日":"明日",dayName});
+        const todayStr=toInput(today);
+        const label=dateStr===todayStr?"本日":dateStr<todayStr?"昨日":"明日";
+        result.push({customer:c.name,date:dt,dateStr,label,dayName});
       }
     });
   });
@@ -2099,7 +2106,7 @@ function showUnissuedModal(){
     <tr style="border-bottom:1px solid #e5e7eb">
       <td style="padding:10px 12px;font-weight:600">${a.customer}</td>
       <td style="padding:10px 12px;color:#555">${fmtDate(a.date)}（${a.dayName}）</td>
-      <td style="padding:10px 12px"><span style="background:${a.label==='本日'?'#fef3c7':'#dbeafe'};color:${a.label==='本日'?'#92400e':'#1e40af'};padding:2px 8px;border-radius:999px;font-size:12px;font-weight:700">${a.label}</span></td>
+      <td style="padding:10px 12px"><span style="background:${a.label==='昨日'?'#fee2e2':a.label==='本日'?'#fef3c7':'#dbeafe'};color:${a.label==='昨日'?'#991b1b':a.label==='本日'?'#92400e':'#1e40af'};padding:2px 8px;border-radius:999px;font-size:12px;font-weight:700">${a.label}</span></td>
       <td style="padding:10px 12px">
         <button onclick="selectCustomerFromSidebar(${JSON.stringify(a.customer)},${JSON.stringify(a.dateStr)});closeUnissuedModal()" style="background:#1a1a2e;color:#e8d5b7;border:none;padding:5px 12px;border-radius:6px;cursor:pointer;font-size:12px">発行する</button>
       </td>
