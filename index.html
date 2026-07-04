@@ -2676,7 +2676,10 @@ window._appStart = async function() {
   render();
   if(!sessionStorage.getItem("pv_unissued_prompted")){
     const alerts=getUnissuedAlerts();
-    if(alerts.length>0)sessionStorage.setItem("pv_unissued_prompted","1");
+    if(alerts.length>0){
+      sessionStorage.setItem("pv_unissued_prompted","1");
+      setTimeout(()=>showUnissuedModal(),300);
+    }
   }
 };
 // Firebaseの初期化が終わっていなければ待つ（通常はmoduleが先に処理される）
