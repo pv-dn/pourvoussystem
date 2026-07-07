@@ -1,0 +1,39 @@
+---
+description: プゥルヴー伝票（納品書発行）単体プロジェクトのコンテキスト（他アプリと混ぜない）
+alwaysApply: true
+---
+
+# pourvoussystem — 独立プロジェクト（プゥルヴー伝票）
+
+このフォルダ（`C:\Users\e--yo\Apps\プゥルヴー伝票`）は **納品書発行システム** のみ。
+
+## 作業前に確認
+
+- 詳細は `PROJECT.md` と `README.md` を読む
+- 他アプリのコード・フォルダを import・参照・変更しない
+
+## 混同禁止（別アプリ）
+
+| 呼び名 | フォルダ / ID | 内容 |
+|--------|----------------|------|
+| **プゥルヴー伝票**（このアプリ） | `Apps\プゥルヴー伝票` / `pourvoussystem` | 納品書・伝票発行 |
+| プゥルヴー在庫 | `Apps\プゥルヴー在庫` / `pourvous-inventory` | 在庫管理 |
+| ライフ伝票 | `Apps\ライフ伝票` | 別会社の伝票アプリ |
+
+## スタック
+
+単体 HTML + Firebase（Auth / Firestore）。正本は **`index.html`** のみ。
+
+## 主要ファイル
+
+- 編集対象: `index.html`（このフォルダ内のみ）
+- デプロイ先: GitHub `pv-dn/pourvoussystem` → https://pv-dn.github.io/pourvoussystem/
+
+## 制約
+
+- **印刷レイアウトは変更しない**（ユーザー合意）
+- `Downloads\index_1.html` など Downloads 配下のコピーは正本ではない
+
+## チャットでの呼び方
+
+「**プゥルヴー伝票**」= このアプリ（納品書発行）
