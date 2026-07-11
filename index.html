@@ -117,6 +117,8 @@ window._fsLoad = async function(k) {
 // リアルタイム同期（ログイン後に開始）
 const watchKeys = ["customers","products","prices","history","invoiceCounters","closingDays","minG","cycles"];
 window._startRealtimeSync = function() {
+if(window._realtimeSyncStarted)return;
+window._realtimeSyncStarted=true;
 watchKeys.forEach(fsKey => {
   const localKey = Object.keys(FS_KEYS).find(k => FS_KEYS[k] === fsKey);
   onSnapshot(doc(db, "pvdata", fsKey), (snap) => {
@@ -221,12 +223,15 @@ td{padding:9px 8px;border-bottom:.5px solid #f0ede8;font-size:13px;overflow:hidd
 .login-btn{width:100%;padding:12px;background:#1a1a2e;color:#e8d5b7;border:none;border-radius:8px;font-size:15px;font-weight:700;cursor:pointer;margin-top:8px;font-family:"Noto Sans JP",sans-serif}
 .login-error{color:#c62828;font-size:13px;margin-top:8px;text-align:center;min-height:20px}
 /* 未発行アラート */
+@keyframes alert-pulse{0%,100%{box-shadow:0 0 0 0 rgba(239,68,68,.75)}50%{box-shadow:0 0 0 10px rgba(239,68,68,0)}}
 @keyframes alert-bar-blink{0%,100%{opacity:1}50%{opacity:.92}}
+#alert-bell-btn.alert-active{background:#dc2626!important;color:#fff!important;padding:8px 16px!important;font-size:13px!important;font-weight:700!important;border-radius:8px!important;border:2px solid #fecaca!important;animation:alert-pulse 1.4s infinite;white-space:nowrap;cursor:pointer}
 #unissued-alert-bar{background:linear-gradient(90deg,#b91c1c,#dc2626 40%,#ea580c);color:#fff;padding:14px 24px;display:none;align-items:center;justify-content:center;gap:16px;flex-wrap:wrap;font-size:15px;font-weight:600;position:sticky;top:64px;z-index:490;box-shadow:0 4px 16px rgba(185,28,28,.45);animation:alert-bar-blink 2s ease-in-out infinite}
 #unissued-alert-bar .alert-bar-icon{font-size:22px;line-height:1;flex-shrink:0}
 #unissued-alert-bar .alert-bar-text{line-height:1.5;text-align:center}
 #unissued-alert-bar .alert-bar-btn{background:#fff;color:#b91c1c;border:none;padding:10px 22px;border-radius:8px;font-weight:700;cursor:pointer;font-size:14px;white-space:nowrap;box-shadow:0 2px 8px rgba(0,0,0,.15)}
 #unissued-alert-bar .alert-bar-btn:hover{background:#fff5f5}
+#unissued-modal .unissued-modal-header{background:linear-gradient(90deg,#b91c1c,#dc2626);color:#fff;margin:-24px -24px 20px;padding:18px 24px;border-radius:12px 12px 0 0}
 /* 2カラム：未発行サイドバー */
 .app-layout{display:flex;max-width:1380px;margin:0 auto;padding:0 20px;gap:20px;align-items:flex-start}
 .app-layout:not(.has-sidebar){max-width:1100px}
@@ -279,6 +284,10 @@ td{padding:9px 8px;border-bottom:.5px solid #f0ede8;font-size:13px;overflow:hidd
   <button id="back-btn" onclick="goBack()" style="background:transparent;color:#aaa;border:1px solid #444;padding:4px 14px;border-radius:6px;cursor:pointer;font-size:13px;margin-left:8px;display:none">← 戻る</button>
 
   <nav class="nav" id="nav"></nav>
+  <div id="alert-bell-wrap" style="display:none;margin-left:12px;flex-shrink:0">
+    <button id="alert-bell-btn" onclick="showUnissuedModal()" title="未発行の納品書があります">⚠️ 未発行</button>
+    <span id="alert-bell-badge" style="display:none"></span>
+  </div>
   <div style="display:flex;align-items:center;gap:10px;margin-left:auto;padding-left:16px;border-left:1px solid #444">
     <div style="display:flex;flex-direction:column;align-items:flex-end;gap:1px">
       <span id="header-user" style="font-size:15px;font-weight:700;color:#FFD700;white-space:nowrap"></span>
@@ -466,10 +475,13 @@ function renderNav(){
 
 function updateUnissuedAlerts(){
   const bar=document.getElementById("unissued-alert-bar");
+  const bellWrap=document.getElementById("alert-bell-wrap");
+  const bellBtn=document.getElementById("alert-bell-btn");
   const layout=document.getElementById("app-layout");
   const sidebar=document.getElementById("unissued-sidebar");
   if(!window._currentUser){
     if(bar)bar.style.display="none";
+    if(bellWrap)bellWrap.style.display="none";
     if(sidebar)sidebar.style.display="none";
     if(layout)layout.classList.remove("has-sidebar");
     return;
@@ -486,7 +498,15 @@ function updateUnissuedAlerts(){
     if(todayCount)parts.push(`本日${todayCount}件`);
     if(tomorrowCount)parts.push(`明日${tomorrowCount}件`);
     detail=parts.join("・");
-    if(bar)bar.style.display="none";
+    if(bellWrap&&bellBtn){
+      bellWrap.style.display="block";
+      bellBtn.className="alert-active";
+      bellBtn.textContent=`⚠️ 未発行 ${count}件`;
+    }
+    if(bar){
+      bar.style.display="flex";
+      bar.innerHTML=`<span class="alert-bar-icon">⚠️</span><span class="alert-bar-text"><strong>伝票が未発行の客先があります（${count}件）</strong> — ${detail}。納品サイクル上、発行が必要です。</span><button type="button" class="alert-bar-btn" onclick="showUnissuedModal()">一覧を確認する</button>`;
+    }
     if(layout)layout.classList.add("has-sidebar");
     if(sidebar){
       sidebar.style.display="block";
@@ -507,6 +527,8 @@ function updateUnissuedAlerts(){
       </div>`;
     }
   }else{
+    if(bellWrap)bellWrap.style.display="none";
+    if(bellBtn)bellBtn.className="";
     if(bar)bar.style.display="none";
     if(sidebar)sidebar.style.display="none";
     if(layout)layout.classList.remove("has-sidebar");
@@ -2075,13 +2097,54 @@ function getUnissuedAlerts(){
       }
     });
   });
-  // 同じ客先が今日・明日両方未発行でも1件にまとめる
   const seen=new Set();
   return result.filter(r=>{
     const key=r.customer+r.dateStr;
     if(seen.has(key))return false;
     seen.add(key);return true;
   });
+}
+
+function showUnissuedModal(){
+  const alerts=getUnissuedAlerts();
+  if(alerts.length===0){showToast("未発行の納品書はありません");return;}
+  const existing=document.getElementById("unissued-modal");
+  if(existing)existing.remove();
+  const rows=alerts.map(a=>`
+    <tr style="border-bottom:1px solid #e5e7eb">
+      <td style="padding:10px 12px;font-weight:600">${a.customer}</td>
+      <td style="padding:10px 12px;color:#555">${fmtDate(a.date)}（${a.dayName}）</td>
+      <td style="padding:10px 12px"><span style="background:${a.label==='昨日'?'#fee2e2':a.label==='本日'?'#fef3c7':'#dbeafe'};color:${a.label==='昨日'?'#991b1b':a.label==='本日'?'#92400e':'#1e40af'};padding:2px 8px;border-radius:999px;font-size:12px;font-weight:700">${a.label}</span></td>
+      <td style="padding:10px 12px">
+        <button onclick="selectCustomerFromSidebar(${JSON.stringify(a.customer)},${JSON.stringify(a.dateStr)});closeUnissuedModal()" style="background:#1a1a2e;color:#e8d5b7;border:none;padding:5px 12px;border-radius:6px;cursor:pointer;font-size:12px">発行する</button>
+      </td>
+    </tr>`).join("");
+  const modal=document.createElement("div");
+  modal.id="unissued-modal";
+  modal.style.cssText="position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:2000;display:flex;align-items:center;justify-content:center";
+  modal.innerHTML=`
+    <div style="background:#fff;border-radius:12px;padding:24px;max-width:640px;width:92%;max-height:80vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,0.35)">
+      <div class="unissued-modal-header" style="display:flex;justify-content:space-between;align-items:center">
+        <h3 style="font-size:18px;font-weight:700;margin:0">⚠️ 未発行の納品書（${alerts.length}件）</h3>
+        <button onclick="closeUnissuedModal()" style="background:rgba(255,255,255,.2);border:none;font-size:18px;cursor:pointer;color:#fff;width:32px;height:32px;border-radius:6px">✕</button>
+      </div>
+      <table style="width:100%;border-collapse:collapse;font-size:14px">
+        <thead><tr style="background:#f5f5f5;font-size:12px;color:#666">
+          <th style="padding:8px 12px;text-align:left">客先</th>
+          <th style="padding:8px 12px;text-align:left">納品日</th>
+          <th style="padding:8px 12px;text-align:left">区分</th>
+          <th style="padding:8px 12px;text-align:left"></th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>`;
+  document.body.appendChild(modal);
+  modal.addEventListener("click",e=>{if(e.target===modal)closeUnissuedModal();});
+}
+
+function closeUnissuedModal(){
+  const m=document.getElementById("unissued-modal");
+  if(m)m.remove();
 }
 
 function selectCustomerFromSidebar(customerName,dateStr){
@@ -2123,8 +2186,11 @@ function showLoginScreen(){
   document.querySelector(".header").style.display="none";
   const alertBar=document.getElementById("unissued-alert-bar");
   if(alertBar)alertBar.style.display="none";
+  const bellWrap=document.getElementById("alert-bell-wrap");
+  if(bellWrap)bellWrap.style.display="none";
   const appLayout=document.getElementById("app-layout");
   if(appLayout)appLayout.style.display="none";
+  closeUnissuedModal();
 }
 window.showLoginScreen=showLoginScreen;
 function hideLoginScreen(){
@@ -2859,6 +2925,13 @@ window._appStart = async function() {
   if(!state.issue)state.issue={customer:"",freeCustomer:false,deliveryDate:"",deliverySite:"",items:[],customItems:[{name:"",qty:"",price:""}],useCustom:false,memo:""};
   if(state.issue.deliverySite===undefined)state.issue.deliverySite="";
   render();
+  if(!sessionStorage.getItem("pv_unissued_prompted")){
+    const alerts=getUnissuedAlerts();
+    if(alerts.length>0){
+      sessionStorage.setItem("pv_unissued_prompted","1");
+      setTimeout(()=>showUnissuedModal(),400);
+    }
+  }
 };
 // Firebaseの初期化が終わっていなければ待つ（通常はmoduleが先に処理される）
 if (typeof window._fsSave !== 'undefined' || typeof window._appStart !== 'undefined') {
