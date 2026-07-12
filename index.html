@@ -1704,7 +1704,7 @@ function resetAll(){
 }
 
 // --- Guide Tab ---
-const _guideOpen=new Set(["daily"]); // 初期は「毎日の運用フロー」だけ開く
+const _guideOpen=new Set(); // 初期はすべて折りたたみ
 let _guideUserUnlocked=false;
 
 function toggleGuideSection(id,needsAdmin){
@@ -1722,11 +1722,13 @@ function toggleGuideSection(id,needsAdmin){
   _guideOpen.add(id);
   render();
 }
+window.toggleGuideSection=toggleGuideSection;
 
 function guideAcc(id,title,bodyHtml,needsAdmin){
   const open=_guideOpen.has(id);
+  const adminArg=needsAdmin?"true":"false";
   return`<div class="guide-acc${open?" open":""}">
-    <button type="button" class="guide-acc-btn" onclick="toggleGuideSection(${JSON.stringify(id)},${needsAdmin?true:false})">
+    <button type="button" class="guide-acc-btn" onclick="toggleGuideSection('${id}',${adminArg})">
       <span class="guide-acc-title">${title}${needsAdmin&&!open?" <span style='font-size:12px;color:#888;font-weight:500'>🔒</span>":""}</span>
       <span class="guide-acc-chevron">▼</span>
     </button>
