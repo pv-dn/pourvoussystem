@@ -206,6 +206,17 @@ td{padding:9px 8px;border-bottom:.5px solid #f0ede8;font-size:13px;overflow:hidd
 .guide-warn{background:#fff5f5;border:1px solid #f0b0b0;border-radius:8px;padding:10px 16px;font-size:13px;color:#8a2020;line-height:1.7;margin-top:8px}
 .guide-badge{display:inline-block;background:#1a1a2e;color:#e8d5b7;border-radius:4px;padding:1px 8px;font-size:12px;font-weight:600;margin-right:6px}
 .guide-h3{font-size:16px;font-weight:600;color:#1a1a2e;margin-bottom:16px;padding-bottom:8px;border-bottom:2px solid #e8d5b7}
+.guide-acc{background:#fff;border-radius:12px;border:.5px solid #e0ddd6;margin-bottom:10px;overflow:hidden}
+.guide-acc-btn{width:100%;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 18px;background:#fff;border:none;cursor:pointer;font-family:inherit;text-align:left}
+.guide-acc-btn:hover{background:#faf9f6}
+.guide-acc-title{font-size:15px;font-weight:600;color:#1a1a2e}
+.guide-acc-chevron{flex-shrink:0;font-size:12px;color:#888;transition:transform .15s}
+.guide-acc.open .guide-acc-chevron{transform:rotate(180deg)}
+.guide-acc-body{display:none;padding:0 18px 18px;border-top:1px solid #f0ede8}
+.guide-acc.open .guide-acc-body{display:block;padding-top:16px}
+.guide-sub{font-size:15px;font-weight:600;color:#1a1a2e;margin:16px 0 10px}
+.guide-sub:first-child{margin-top:0}
+
 .stat-card{background:#f5f3ef;border-radius:8px;padding:12px 16px}
 .stat-label{font-size:12px;color:#888}
 .stat-val{font-size:22px;font-weight:600;color:#1a1a2e}
@@ -1693,172 +1704,165 @@ function resetAll(){
 }
 
 // --- Guide Tab ---
+const _guideOpen=new Set(["daily"]); // 初期は「毎日の運用フロー」だけ開く
+let _guideUserUnlocked=false;
+
+function toggleGuideSection(id,needsAdmin){
+  if(_guideOpen.has(id)){
+    _guideOpen.delete(id);
+    render();
+    return;
+  }
+  if(needsAdmin&&!_guideUserUnlocked){
+    const pass=prompt("管理者パスワードを入力してください");
+    if(pass===null)return;
+    if(pass!==_userTabAdminPass){alert("パスワードが違います");return;}
+    _guideUserUnlocked=true;
+  }
+  _guideOpen.add(id);
+  render();
+}
+
+function guideAcc(id,title,bodyHtml,needsAdmin){
+  const open=_guideOpen.has(id);
+  return`<div class="guide-acc${open?" open":""}">
+    <button type="button" class="guide-acc-btn" onclick="toggleGuideSection(${JSON.stringify(id)},${needsAdmin?true:false})">
+      <span class="guide-acc-title">${title}${needsAdmin&&!open?" <span style='font-size:12px;color:#888;font-weight:500'>🔒</span>":""}</span>
+      <span class="guide-acc-chevron">▼</span>
+    </button>
+    <div class="guide-acc-body">${bodyHtml}</div>
+  </div>`;
+}
+
 function renderGuideTab(){
-  return`<h2 style="font-size:20px;font-weight:600;margin-bottom:20px;color:#1a1a2e">運用方法</h2>
+  const step=(n,html)=>`<div class="guide-step"><div class="guide-num">${n}</div><div style="font-size:14px;line-height:1.7">${html}</div></div>`;
+  return`<h2 style="font-size:20px;font-weight:600;margin-bottom:12px;color:#1a1a2e">運用方法</h2>
+  <p style="font-size:13px;color:#888;margin-bottom:16px;line-height:1.6">各項目をクリックすると開きます。必要なところだけ見てください。</p>
 
-  <div class="card"><h3 class="guide-h3">🔐 ログイン・ログアウト</h3>
-  <div style="margin-bottom:20px">
-    <div style="font-size:15px;font-weight:600;color:#1a1a2e;margin-bottom:10px">ログイン方法</div>
-    <div class="guide-step"><div class="guide-num">1</div><div style="font-size:14px;line-height:1.7">ブラウザで <strong>https://pv-dn.github.io/pourvoussystem/</strong> を開きます。</div></div>
-    <div class="guide-step"><div class="guide-num">2</div><div style="font-size:14px;line-height:1.7">パスワードを入力して「ログイン」ボタンを押します。</div></div>
-    <div class="guide-step"><div class="guide-num">3</div><div style="font-size:14px;line-height:1.7">ログインすると、画面右上に自分の略称IDと名前が表示されます。</div></div>
-    <div class="guide-note">パスワードはユーザーごとに異なります。わからない場合は管理者に確認してください。</div>
-  </div>
-  <div>
-    <div style="font-size:15px;font-weight:600;color:#1a1a2e;margin-bottom:10px">ログアウト方法</div>
-    <div class="guide-step"><div class="guide-num">1</div><div style="font-size:14px;line-height:1.7">画面右上の「<strong>ログアウト</strong>」ボタンを押します。</div></div>
-    <div class="guide-step"><div class="guide-num">2</div><div style="font-size:14px;line-height:1.7">確認メッセージで「OK」を押すとログアウトされ、ログイン画面に戻ります。</div></div>
-    <div class="guide-warn">使い終わったら必ずログアウトしてください。</div>
-  </div></div>
+  ${guideAcc("daily","📋 毎日の運用フロー",`
+    ${step(1,"<strong>ログイン</strong>　ブラウザで <strong>https://pv-dn.github.io/pourvoussystem/</strong> を開き、パスワードでログインします。")}
+    ${step(2,"<strong>未発行を確認</strong>　左側の赤いカードに、昨日・本日・明日の未発行客先が出ます。タップするとその客先の発行画面に入れます。")}
+    ${step(3,"<strong>客先を選択</strong>　「伝票発行」タブで客先を選びます。納品日がサイクルから自動で入ります。")}
+    ${step(4,"<strong>数量を入力</strong>　品目の数量を入力します。Enterで次の行へ進めます。合計は自動計算されます。")}
+    ${step(5,"<strong>納品書を発行・印刷</strong>　「納品書を発行する」→「印刷（B5横）」で印刷します。中央の破線で半分に切り、お客様控えと社内控えに分けます。")}
+    ${step(6,"<strong>1日の終わりに明細書データを書き出す</strong>　「発行履歴」→「📂 明細書用データを書き出す」でJSONを保存し、明細書Excelの取り込みマクロで転記します。")}
+    <div class="guide-note">伝票1枚につき1列（C列〜P列）に転記されます。同じ客先へ14枚を超えると警告が出ます。</div>
+    <div class="guide-warn">使い終わったら右上の「ログアウト」を必ず押してください。</div>
+  `)}
 
-  <div class="card">
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0">
-      <h3 class="guide-h3" style="margin-bottom:0;border-bottom:none">👤 ユーザー管理</h3>
-      <button onclick="toggleGuideUserSection()" style="background:#f0ede8;border:none;padding:5px 14px;border-radius:6px;cursor:pointer;font-size:13px" id="guide-user-btn">🔒 表示する</button>
+  ${guideAcc("login","🔐 ログイン・ログアウト",`
+    <div class="guide-sub">ログイン</div>
+    ${step(1,"ブラウザで <strong>https://pv-dn.github.io/pourvoussystem/</strong> を開きます。")}
+    ${step(2,"パスワードを入力して「ログイン」を押します。")}
+    ${step(3,"右上に自分の略称IDと名前が表示されます。")}
+    <div class="guide-note">パスワードがわからない場合は管理者に確認してください。</div>
+    <div class="guide-sub">ログアウト</div>
+    ${step(1,"右上の「ログアウト」を押し、確認で「OK」を選びます。")}
+    <div class="guide-warn">終了前に必ずログアウトしてください。</div>
+  `)}
+
+  ${guideAcc("unissued","⚠️ 未発行のお知らせ（左サイドバー）",`
+    ${step(1,"ログイン後、画面左に赤い「未発行 ○件」カードが出ます（未発行があるときだけ）。")}
+    ${step(2,"昨日・本日・明日の納品サイクルで、まだ発行していない客先が一覧表示されます。")}
+    ${step(3,"客先名を押すと、その客先・納品日が選ばれた状態で伝票発行画面に切り替わります。")}
+    <div class="guide-note">すべて発行済みになると、左のカードは自動で消えます。</div>
+  `)}
+
+  ${guideAcc("issue","📝 伝票発行・品目の追加",`
+    <div class="guide-sub">通常の品目</div>
+    ${step(1,"客先を選ぶと、登録済み品目が一覧表示されます。数量を入力してください。")}
+    <div class="guide-sub">イレギュラーな品目</div>
+    ${step(1,"「📝 自由入力で追加」で品名・数量・単価を直接入力できます。")}
+    ${step(2,"「📋 商品リストから追加」で商品管理の商品を選んで追加できます。")}
+    <div class="guide-sub">リストにない客先</div>
+    ${step(1,"客先のドロップダウン最下部「＋ リスト外の客先を入力」を選び、名前を手入力します。")}
+    <div class="guide-note">数量別単価の品目は、入力した数量に応じて単価が自動で切り替わります。</div>
+  `)}
+
+  ${guideAcc("rodo","🏢 神奈川労働局（納品先の選択）",`
+    ${step(1,"客先で「神奈川労働局」を選ぶと、納品先（平塚・相模原・藤沢・厚木）を選べます。")}
+    ${step(2,"選んだ納品先は、印刷時に品目の1行目に表示されます。")}
+  `)}
+
+  ${guideAcc("history","📜 発行履歴・没伝票・発行ログ",`
+    <div class="guide-sub">再印刷・修正</div>
+    ${step(1,"「発行履歴」タブで伝票を探し、「再印刷」または「修正」を使います。")}
+    <div class="guide-sub">没にする</div>
+    ${step(1,"対象伝票の「没」を押すと、赤字・取り消し線表示になります。「復活」で戻せます。")}
+    <div class="guide-note">没伝票は削除されず残ります。集計からも除外されます。</div>
+    <div class="guide-sub">発行ログ</div>
+    ${step(1,"「📋 発行ログを見る」で、伝票番号・客先・発行者・日時を確認できます。")}
+  `)}
+
+  ${guideAcc("stats","📊 売上統計",`
+    ${step(1,"「📊 売上統計」タブで、年月ごとの売上をグラフや表で確認できます。")}
+    ${step(2,"年の切り替えや、月次・累計・前年比較などの表示を選べます。")}
+    <div class="guide-note">没にした伝票は売上から除外されます。</div>
+  `)}
+
+  ${guideAcc("data","📂 データタブ（客先・商品・単価）",`
+    ${step(1,"「📂 データ」タブを開き、自分のログインパスワードで認証します。")}
+    ${step(2,"客先管理・商品管理・単価対応表・修正記録が使えます。")}
+    <div class="guide-sub">客先の追加</div>
+    ${step(1,"「＋ 客先追加」で客先名・最低保証・納品サイクルを設定します。")}
+    ${step(2,"「詳細編集」で締め日（20日 / 25日 / 月末）や単価を設定します。")}
+    <div class="guide-sub">商品・単価</div>
+    ${step(1,"商品管理で品番・品名を追加し、単価対応表または客先詳細で単価を登録します。")}
+    ${step(2,"カーテンなど枚数で単価が変わる品目は「数量別単価」を使います。")}
+    <div class="guide-warn">データの変更は修正記録に自動で残ります。</div>
+  `)}
+
+  ${guideAcc("closing","📅 締め日と明細書シート",`
+    <p style="font-size:14px;color:#555;margin-bottom:12px;line-height:1.7">客先ごとに締め日を設定すると、書き出し時に自動で正しい期間・翌月シートへ切り替わります。</p>
+    <div style="background:#f5f3ef;border-radius:8px;padding:14px;font-size:13px;line-height:2;margin-bottom:12px">
+      <strong>例（書き出し日：5月26日）</strong><br>
+      ・20日締め → 4/21〜5/20（5/21からは6月分）<br>
+      ・25日締め → 4/26〜5/25（5/26からは6月分）<br>
+      ・月末締め → 5/1〜5/31（6/1からは6月分）
     </div>
-    <div style="border-bottom:2px solid #e8d5b7;margin:12px 0 16px"></div>
-  <div id="guide-user-section" style="display:none">
-  <div style="margin-bottom:20px">
-    <div style="font-size:15px;font-weight:600;color:#1a1a2e;margin-bottom:10px">ユーザー管理タブに入る</div>
-    <div class="guide-step"><div class="guide-num">1</div><div style="font-size:14px;line-height:1.7">上のタブから「<span class="guide-badge">👤 ユーザー管理</span>」をクリックします。</div></div>
-    <div class="guide-step"><div class="guide-num">2</div><div style="font-size:14px;line-height:1.7">管理者パスワードを入力して「認証する」を押します。</div></div>
-    <div class="guide-note">管理者パスワードは管理者のみが知っています。一般ユーザーは入れません。</div>
-  </div>
-  <div style="margin-bottom:20px">
-    <div style="font-size:15px;font-weight:600;color:#1a1a2e;margin-bottom:10px">新しいユーザーを追加する</div>
-    <div class="guide-step"><div class="guide-num">1</div><div style="font-size:14px;line-height:1.7">「新規ユーザーを追加」欄にメールアドレス・パスワード・略称ID・表示名を入力します。</div></div>
-    <div class="guide-step"><div class="guide-num">2</div><div style="font-size:14px;line-height:1.7">「追加」ボタンを押すと登録完了です。</div></div>
-    <div class="guide-step"><div class="guide-num">3</div><div style="font-size:14px;line-height:1.7">登録したパスワードを本人に伝えてください。次回からパスワードだけでログインできます。</div></div>
-    <div class="guide-note">略称IDは発行履歴に表示されます。例：善方悦史さんなら「EY」など。</div>
-  </div>
-  <div style="margin-bottom:20px">
-    <div style="font-size:15px;font-weight:600;color:#1a1a2e;margin-bottom:10px">ログイン履歴を確認する</div>
-    <div class="guide-step"><div class="guide-num">1</div><div style="font-size:14px;line-height:1.7">ユーザー管理タブ下部の「ログイン履歴」で、誰がいつログインしたか確認できます。</div></div>
-    <div class="guide-note">直近30件が表示されます。</div>
-  </div>
-  <div>
-    <div style="font-size:15px;font-weight:600;color:#1a1a2e;margin-bottom:10px">管理者パスワードを変更する</div>
-    <div class="guide-step"><div class="guide-num">1</div><div style="font-size:14px;line-height:1.7">ユーザー管理タブ内の「管理者パスワードの変更」欄で新しいパスワードを入力します。</div></div>
-    <div class="guide-step"><div class="guide-num">2</div><div style="font-size:14px;line-height:1.7">「変更」ボタンを押すと即座に反映されます。</div></div>
-    <div class="guide-warn">変更後は新しいパスワードをメモしておいてください。忘れると管理者タブに入れなくなります。</div>
-  </div>
-  </div><!-- /guide-user-section -->
-  </div>
+    ${step(1,"客先の「詳細編集」→「締め日」で 20日 / 25日 / 月末 を選び保存します。")}
+  `)}
 
-  <div class="card"><h3 class="guide-h3">📝 伝票発行の品目追加</h3>
-  <div style="margin-bottom:20px">
-    <div style="font-size:15px;font-weight:600;color:#1a1a2e;margin-bottom:10px">通常の品目入力</div>
-    <div class="guide-step"><div class="guide-num">1</div><div style="font-size:14px;line-height:1.7">客先を選択すると、登録済みの品目一覧が表示されます。数量を入力してください。</div></div>
-  </div>
-  <div style="margin-bottom:20px">
-    <div style="font-size:15px;font-weight:600;color:#1a1a2e;margin-bottom:10px">イレギュラーな品目を追加する</div>
-    <div class="guide-step"><div class="guide-num">1</div><div style="font-size:14px;line-height:1.7">「<span class="guide-badge">📝 自由入力で追加</span>」ボタンを押すと、品名・数量・単価を自由に入力できる行が追加されます。</div></div>
-    <div class="guide-step"><div class="guide-num">2</div><div style="font-size:14px;line-height:1.7">「<span class="guide-badge">📋 商品リストから追加</span>」ボタンを押すと、商品管理に登録済みの商品を選んで追加できます。</div></div>
-    <div class="guide-note">通常品目と追加品目は混在して合計金額が計算されます。</div>
-  </div></div>
+  ${guideAcc("price","💴 明細書への単価の反映ルール",`
+    <div style="background:#f5f3ef;border-radius:8px;padding:14px;font-size:13px;line-height:2">
+      ・<strong>品名が初めて</strong> → 伝票の単価で登録<br>
+      ・<strong>品名・単価が同じ</strong> → その行に数量を追記<br>
+      ・<strong>品名同じ・単価が違う</strong>（値上がりなど）→ <strong>別行として追加</strong>
+    </div>
+    <div class="guide-note">値上がり時は同じ品名が2行になります。それぞれ別単価で集計されます。</div>
+  `)}
 
-  <div class="card"><h3 class="guide-h3">🚫 没伝票の管理</h3>
-  <div style="margin-bottom:20px">
-    <div style="font-size:15px;font-weight:600;color:#1a1a2e;margin-bottom:10px">没伝票にする</div>
-    <div class="guide-step"><div class="guide-num">1</div><div style="font-size:14px;line-height:1.7">発行履歴タブで対象の伝票の「<span class="guide-badge">没</span>」ボタンを押します。</div></div>
-    <div class="guide-step"><div class="guide-num">2</div><div style="font-size:14px;line-height:1.7">確認メッセージで「OK」を押すと、その伝票が赤字・取り消し線で表示されます。</div></div>
-    <div class="guide-step"><div class="guide-num">3</div><div style="font-size:14px;line-height:1.7">間違えた場合は「<span class="guide-badge">復活</span>」ボタンで元に戻せます。</div></div>
-    <div class="guide-note">没伝票はデータから削除されず残ります。</div>
-  </div></div>
+  ${guideAcc("trouble","🔧 トラブル時の対処",`
+    <div class="guide-sub">印刷に失敗した</div>
+    ${step(1,"発行履歴 → 該当伝票の「再印刷」。伝票番号はそのままです。")}
+    <div class="guide-sub">数量や金額を間違えた</div>
+    ${step(1,"発行履歴 →「修正」→ 内容を直して保存 →「再印刷」。")}
+    ${step(2,"明細書データを再書き出しして、もう一度取り込んでください（同じ列に上書きされます）。")}
+    <div class="guide-sub">履歴を削除したい</div>
+    ${step(1,"発行履歴の「削除」。確認後に消えます。元に戻せません。")}
+    <div class="guide-warn">削除前に明細書への書き出しを済ませてください。</div>
+  `)}
 
-  <div class="card"><h3 class="guide-h3">📋 発行ログ</h3>
-  <div style="margin-bottom:20px">
-    <div style="font-size:15px;font-weight:600;color:#1a1a2e;margin-bottom:10px">発行ログの確認</div>
-    <div class="guide-step"><div class="guide-num">1</div><div style="font-size:14px;line-height:1.7">発行履歴タブの「<span class="guide-badge">📋 発行ログを見る</span>」ボタンを押します。</div></div>
-    <div class="guide-step"><div class="guide-num">2</div><div style="font-size:14px;line-height:1.7">発行した伝票の番号・客先・発行者・日時が一覧で確認できます。</div></div>
-    <div class="guide-note">発行ログは履歴とは別に保存されるため、履歴が消えても確認できます。</div>
-  </div></div>
+  ${guideAcc("sync","☁️ 複数PCでのデータ共有・バックアップ",`
+    <p style="font-size:14px;color:#555;margin-bottom:12px;line-height:1.7">客先・履歴などのデータは <strong>Firebase（クラウド）に自動同期</strong>されます。同じアカウントでログインすれば、どのPCでも同じ内容が見えます。</p>
+    ${step(1,"普段は特別な操作は不要です。ログインするだけで最新データが入ります。")}
+    ${step(2,"万が一に備え、「バックアップ」タブから定期的にバックアップをdownloadしてください。")}
+    ${step(3,"バックアップから戻すときは「データをインポートする」を使います（現在のデータが上書きされます）。")}
+    <div class="guide-warn">インポートは最新のバックアップだけを使ってください。</div>
+  `)}
 
-  <div class="card"><h3 class="guide-h3">📂 データタブ</h3>
-  <div style="margin-bottom:20px">
-    <div style="font-size:15px;font-weight:600;color:#1a1a2e;margin-bottom:10px">データタブに入る</div>
-    <div class="guide-step"><div class="guide-num">1</div><div style="font-size:14px;line-height:1.7">「<span class="guide-badge">📂 データ</span>」タブをクリックします。</div></div>
-    <div class="guide-step"><div class="guide-num">2</div><div style="font-size:14px;line-height:1.7">自分のログインパスワードを入力して「認証する」を押します。</div></div>
-    <div class="guide-step"><div class="guide-num">3</div><div style="font-size:14px;line-height:1.7">客先管理・商品管理・単価対応表・修正記録のサブタブが使えます。</div></div>
-    <div class="guide-warn">データの変更は修正記録に自動で記録されます。</div>
-  </div></div>
-
-  <div class="card"><h3 class="guide-h3">📋 毎日の運用フロー</h3>
-  ${[
-    ["客先を選択","「伝票発行」タブを開き、客先をドロップダウンから選択します。納品日が自動で入ります。"],
-    ["数量を入力","客先ごとの品目が自動表示されます。数量を入力してください。Enterキーを押すと次の品目へ移動できます。合計金額が自動計算されます。"],
-    ["納品書を発行","「納品書を発行する」ボタンを押すと印刷プレビューが表示されます。伝票番号は自動採番されます。"],
-    ["印刷する","「印刷（B5横）」ボタンを押して印刷します。印刷設定でB5・横向きを選択してください。"],
-    ["伝票を切り分ける","中央の破線で半分に切ります。1枚をお客様へ渡し、控えを社内で保管してください。"],
-    ["1日の終わりに明細書データを書き出す","「発行履歴」タブを開き、「📂 明細書用データを書き出す」ボタンを押します。JSONファイルが保存されます。締め日を過ぎると自動で翌月分として書き出されます。"],
-    ["明細書Excelに取り込む","明細書Excel（プゥル_ヴー明細書.xlsm）を開き、「取り込み」マクロを実行します。保存したJSONを選択するだけで全客先シートに自動転記されます。"]
-  ].map(([t,d],i)=>`<div class="guide-step"><div class="guide-num">${i+1}</div><div style="font-size:14px;line-height:1.7"><strong>${t}</strong>　${d}</div></div>`).join("")}
-  <div class="guide-note">伝票1枚につき1列（C列〜P列）に転記されます。行10に伝票番号、行11に納品日（5/2形式）が表示されます。同じ客先へ14枚を超えた場合は警告が出ます。</div></div>
-
-  <div class="card"><h3 class="guide-h3">📊 締め日と明細書シートの自動切り替え</h3>
-  <p style="font-size:14px;color:#555;margin-bottom:12px;line-height:1.7">客先ごとに締め日を設定しておくと、締め日を過ぎた翌日から自動的に翌月シートへ切り替わります。月の選択は不要で、ボタンを押すだけで正しい期間のデータが書き出されます。</p>
-  <div style="background:#f5f3ef;border-radius:8px;padding:14px;font-size:13px;line-height:2">
-    <strong>集計される期間の例（書き出し日：5月26日）</strong><br>
-    ・20日締め → 4/21〜5/20（5/21からは6月分シートへ）<br>
-    ・25日締め → 4/26〜5/25（5/26からは6月分シートへ）<br>
-    ・月末締め → 5/1〜5/31（6/1からは6月分シートへ）
-  </div>
-  <div style="margin-top:14px">
-    <div style="font-size:15px;font-weight:600;color:#1a1a2e;margin-bottom:10px">締め日の設定方法（初回のみ）</div>
-    <div class="guide-step"><div class="guide-num">1</div><div style="font-size:14px;line-height:1.7"><span class="guide-badge">客先管理</span>タブを開き、設定したい客先の「詳細編集」を押します。</div></div>
-    <div class="guide-step"><div class="guide-num">2</div><div style="font-size:14px;line-height:1.7">「基本情報」欄の「締め日」で <strong>20日 / 25日 / 月末</strong> から選んで「保存する」を押します。</div></div>
-    <div class="guide-note">設定後は客先一覧でも締め日が確認できます。</div>
-  </div></div>
-
-  <div class="card"><h3 class="guide-h3">💴 単価の取り扱い</h3>
-  <p style="font-size:14px;color:#555;margin-bottom:12px;line-height:1.7">明細書への単価の反映は以下のルールで行われます。</p>
-  <div style="background:#f5f3ef;border-radius:8px;padding:14px;font-size:13px;line-height:2">
-    ・<strong>品名が初めて登場</strong>（新シート・新品目）→ 伝票側の単価で登録<br>
-    ・<strong>品名が既存行にある・単価が同じ</strong> → その行に数量を追記<br>
-    ・<strong>品名が同じでも単価が変わった</strong>（値上がりなど）→ <strong>別の行として新規追加</strong>
-  </div>
-  <div class="guide-note">値上がりがあった場合、同じ品名が2行になります。それぞれ別単価・別数量で正しく集計されます。</div></div>
-
-  <div class="card"><h3 class="guide-h3">✏️ 自由入力モードの使い方</h3>
-  <p style="font-size:14px;color:#555;margin-bottom:12px;line-height:1.7">単価対応表に登録されていない客先や、臨時の品目を発行するときに使用します。</p>
-  <div class="guide-step"><div class="guide-num">1</div><div style="font-size:14px;line-height:1.7">客先を選択後、「自由入力モード」のチェックボックスをオンにします。</div></div>
-  <div class="guide-step"><div class="guide-num">2</div><div style="font-size:14px;line-height:1.7">品名・数量・単価を直接入力します。入力欄をクリックしてそのまま文字が打てます。</div></div>
-  <div class="guide-step"><div class="guide-num">3</div><div style="font-size:14px;line-height:1.7">「＋ 行追加」ボタンで品目を増やせます。不要な行は「✕」で削除できます。</div></div>
-  <div class="guide-note">入力欄から外れると（Tabキーや他の場所をクリック）金額が自動計算されます。</div></div>
-
-  <div class="card"><h3 class="guide-h3">🔧 トラブル時の対処法</h3>
-  <div style="margin-bottom:20px"><div style="font-size:15px;font-weight:600;color:#1a1a2e;margin-bottom:10px">印刷がうまくいかなかった場合</div>
-  <div class="guide-step"><div class="guide-num">1</div><div style="font-size:14px;line-height:1.7"><span class="guide-badge">発行履歴</span>タブを開きます。</div></div>
-  <div class="guide-step"><div class="guide-num">2</div><div style="font-size:14px;line-height:1.7">該当の伝票を探して「再印刷」ボタンを押します。同じ伝票番号でそのまま印刷できます。</div></div>
-  <div class="guide-note">伝票番号は変わりません。そのまま再印刷してください。</div></div>
-  <div style="margin-bottom:20px"><div style="font-size:15px;font-weight:600;color:#1a1a2e;margin-bottom:10px">数量や金額を間違えた場合</div>
-  <div class="guide-step"><div class="guide-num">1</div><div style="font-size:14px;line-height:1.7"><span class="guide-badge">発行履歴</span>タブを開きます。</div></div>
-  <div class="guide-step"><div class="guide-num">2</div><div style="font-size:14px;line-height:1.7">該当の伝票の「修正」ボタンを押します。</div></div>
-  <div class="guide-step"><div class="guide-num">3</div><div style="font-size:14px;line-height:1.7">伝票番号・納品日・品名・数量・単価を修正して「修正を保存する」を押します。</div></div>
-  <div class="guide-step"><div class="guide-num">4</div><div style="font-size:14px;line-height:1.7">保存後に「再印刷」ボタンで修正後の内容を印刷します。</div></div>
-  <div class="guide-note">修正後は明細書データを再書き出しして、もう一度取り込んでください（同じ列に上書きされます）。</div></div>
-  <div><div style="font-size:15px;font-weight:600;color:#1a1a2e;margin-bottom:10px">不要な履歴を削除したい場合</div>
-  <div class="guide-step"><div class="guide-num">1</div><div style="font-size:14px;line-height:1.7"><span class="guide-badge">発行履歴</span>タブを開きます。</div></div>
-  <div class="guide-step"><div class="guide-num">2</div><div style="font-size:14px;line-height:1.7">該当の伝票の「削除」ボタンを押します。確認メッセージが出るので「OK」を押すと削除されます。</div></div>
-  <div class="guide-warn">削除した履歴は元に戻せません。明細書への書き出しは削除前に済ませておいてください。</div></div></div>
-
-  <div class="card"><h3 class="guide-h3">⚙️ 客先・商品の管理</h3>
-  <div style="margin-bottom:16px"><div style="font-size:15px;font-weight:600;color:#1a1a2e;margin-bottom:10px">新しい客先を追加するとき</div>
-  <div class="guide-step"><div class="guide-num">1</div><div style="font-size:14px;line-height:1.7"><span class="guide-badge">客先管理</span>タブの「＋ 客先追加」ボタンを押します。</div></div>
-  <div class="guide-step"><div class="guide-num">2</div><div style="font-size:14px;line-height:1.7">客先No.は自動でセットされます。客先名・最低保証金額・納品サイクルを入力して「追加」を押します。</div></div>
-  <div class="guide-step"><div class="guide-num">3</div><div style="font-size:14px;line-height:1.7">追加後、「詳細編集」から締め日を設定してください。</div></div>
-  <div class="guide-note">納品サイクルは曜日ボタンをクリックして設定します。複数選択できます。</div></div>
-  <div><div style="font-size:15px;font-weight:600;color:#1a1a2e;margin-bottom:10px">新しい商品を追加するとき</div>
-  <div class="guide-step"><div class="guide-num">1</div><div style="font-size:14px;line-height:1.7"><span class="guide-badge">商品管理</span>タブの「＋ 商品追加」ボタンを押します。</div></div>
-  <div class="guide-step"><div class="guide-num">2</div><div style="font-size:14px;line-height:1.7">商品コードは自動でセットされます。品名を入力して「追加」を押します。</div></div></div></div>
-
-  <div class="card"><h3 class="guide-h3">💾 3台のPCでデータを共有する方法</h3>
-  <p style="font-size:14px;color:#555;margin-bottom:16px;line-height:1.7">現在のシステムはPC個別にデータを保存しています。複数台で同じデータを使うには、定期的にバックアップを共有してください。</p>
-  <div class="guide-step"><div class="guide-num">1</div><div style="font-size:14px;line-height:1.7"><span class="guide-badge">設定</span>タブを開き、「バックアップを書き出す」ボタンを押します。</div></div>
-  <div class="guide-step"><div class="guide-num">2</div><div style="font-size:14px;line-height:1.7">ファイルを共有フォルダやUSBメモリで他のPCに渡します。</div></div>
-  <div class="guide-step"><div class="guide-num">3</div><div style="font-size:14px;line-height:1.7">他のPCで<span class="guide-badge">設定</span>タブを開き「データをインポートする」で読み込みます。</div></div>
-  <div class="guide-warn">インポートすると現在のデータが上書きされます。必ず最新のPCからバックアップを取ってから渡してください。</div></div>
-  <div class="card"><h3 class="guide-h3">将来的な自動連動について</h3><p style="font-size:14px;color:#555;line-height:1.7">将来的にはクラウド（Firebase等）と連動することで、3台のPCが自動でリアルタイムに同期できるようになります。現在は手動バックアップで運用し、タイミングを見て自動連動化を検討してください。</p></div>`;
+  ${guideAcc("user","👤 ユーザー管理（管理者向け）",`
+    <div class="guide-sub">タブに入る</div>
+    ${step(1,"「👤 ユーザー管理」タブ → 管理者パスワードで認証します。")}
+    <div class="guide-sub">ユーザー追加</div>
+    ${step(1,"メールアドレス・パスワード・略称ID・表示名を入力して「追加」。")}
+    ${step(2,"パスワードを本人に伝えます。略称IDは発行履歴に表示されます（例：EY）。")}
+    <div class="guide-sub">ログイン履歴</div>
+    ${step(1,"タブ下部で直近のログインを確認できます。")}
+    <div class="guide-sub">管理者パスワード変更</div>
+    ${step(1,"「管理者パスワードの変更」で新しいパスワードを設定します。")}
+    <div class="guide-warn">変更後は忘れないよう控えてください。</div>
+  `,true)}`;
 }
 
 // --- Print Modal ---
@@ -2367,22 +2371,8 @@ async function changeAdminPass(){
 
 
 function toggleGuideUserSection(){
-  const section=document.getElementById("guide-user-section");
-  const btn=document.getElementById("guide-user-btn");
-  if(!section)return;
-  if(section.style.display==="none"){
-    const pass=prompt("管理者パスワードを入力してください");
-    if(pass===null)return;
-    if(pass===_userTabAdminPass){
-      section.style.display="block";
-      btn.textContent="🔓 非表示にする";
-    } else {
-      alert("パスワードが違います");
-    }
-  } else {
-    section.style.display="none";
-    btn.textContent="🔒 表示する";
-  }
+  // 互換用（折りたたみ式に移行済み）
+  toggleGuideSection("user",true);
 }
 
 
