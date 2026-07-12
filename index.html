@@ -1797,6 +1797,7 @@ function renderGuideTab(){
   ${guideAcc("stats","📊 売上統計",`
     ${step(1,"「📊 売上統計」タブで、年月ごとの売上をグラフや表で確認できます。")}
     ${step(2,"年の切り替えや、月次・累計・前年比較などの表示を選べます。")}
+    ${step(3,"「ランキング」では通年に加え、1月〜12月の月別でも客先売上順を確認できます。")}
     <div class="guide-note">没にした伝票は売上から除外されます。</div>
   `)}
 
@@ -2588,6 +2589,7 @@ window._autoUploadToGitHub = async function(htmlContent) {
 // ===== 売上統計タブ =====
 let _statsView="monthly";
 let _statsYear=new Date().getFullYear();
+let _statsRankMonth=null; // null=全年, 0〜11=その月
 let _statsCharts={};
 
 function getValidHistory(){
@@ -2629,11 +2631,12 @@ function aggregateMonthlyByCustomer(year){
   return map;
 }
 
-function aggregateCustomerRanking(year){
+function aggregateCustomerRanking(year,month){
   const map={};
   getValidHistory().forEach(h=>{
     const d=new Date(h.issueDate||h.deliveryDate);
     if(isNaN(d)||d.getFullYear()!==year)return;
+    if(month!==null&&month!==undefined&&d.getMonth()!==month)return;
     map[h.customer]=(map[h.customer]||0)+h.total;
   });
   return Object.entries(map).sort((a,b)=>b[1]-a[1]);
@@ -2659,6 +2662,10 @@ function destroyCharts(){
 
 function setStatsView(v){_statsView=v;render();}
 function setStatsYear(y){_statsYear=parseInt(y);render();}
+function setStatsRankMonth(m){
+  _statsRankMonth=(m===null||m===""||m==="all")?null:parseInt(m);
+  render();
+}
 
 const MONTH_LABELS=["1月","2月","3月","4月","5月","6月","7月","8月","9月","10月","11月","12月"];
 const CHART_COLORS=["#1a1a2e","#e8d5b7","#2d6a4f","#c62828","#1565c0","#f57f17","#6a1b9a","#00838f","#e65100","#2e7d32","#ad1457","#4527a0","#00695c","#bf360c","#283593","#827717","#004d40","#880e4f","#1b5e20","#311b92"];
@@ -2735,14 +2742,22 @@ function renderStatsByCustomer(){
 }
 
 function renderStatsRanking(){
-  const ranking=aggregateCustomerRanking(_statsYear);
-  if(ranking.length===0)return`<div class="card"><p style="color:#888">データがありません</p></div>`;
+  const ranking=aggregateCustomerRanking(_statsYear,_statsRankMonth);
+  const periodLabel=_statsRankMonth===null?`${_statsYear}年 通年`:`${_statsYear}年 ${MONTH_LABELS[_statsRankMonth]}`;
+  const monthBtns=[{id:null,label:"通年"},...MONTH_LABELS.map((lab,i)=>({id:i,label:lab}))].map(m=>{
+    const active=(_statsRankMonth===null&&m.id===null)||_statsRankMonth===m.id;
+    return`<button type="button" onclick="setStatsRankMonth(${m.id===null?"null":m.id})" style="padding:5px 12px;border-radius:6px;border:1px solid ${active?"#1a1a2e":"#ddd"};cursor:pointer;font-size:12px;font-weight:${active?"600":"400"};background:${active?"#1a1a2e":"#fff"};color:${active?"#e8d5b7":"#555"}">${m.label}</button>`;
+  }).join("");
+  if(ranking.length===0)return`<div class="card"><h3>客先別売上ランキング（${periodLabel}）</h3>
+    <div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:16px">${monthBtns}</div>
+    <p style="color:#888">データがありません</p></div>`;
   const total=ranking.reduce((s,r)=>s+r[1],0);
   const rows=ranking.map(([name,amount],i)=>{
     const pct=total>0?(amount/total*100).toFixed(1):"0";
     return`<tr><td style="font-weight:600;color:#888;text-align:center">${i+1}</td><td style="font-weight:500">${name}</td><td style="text-align:right;font-weight:600">¥${amount.toLocaleString()}</td><td style="text-align:right;color:#888">${pct}%</td></tr>`;
   }).join("");
-  return`<div class="card"><h3>客先別売上ランキング（${_statsYear}年）</h3>
+  return`<div class="card"><h3>客先別売上ランキング（${periodLabel}）</h3>
+    <div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:16px">${monthBtns}</div>
     <div style="height:${Math.max(250,ranking.length*30+60)}px;margin-bottom:20px"><canvas id="chart-ranking"></canvas></div>
     <table><thead><tr style="background:#f5f5f5;font-size:12px"><th style="padding:8px;text-align:center">順位</th><th style="padding:8px;text-align:left">客先</th><th style="padding:8px;text-align:right">売上</th><th style="padding:8px;text-align:right">構成比</th></tr></thead>
     <tbody>${rows}</tbody>
@@ -2807,7 +2822,8 @@ function drawStatsCharts(){
   }
   else if(_statsView==="ranking"){
     const el=document.getElementById("chart-ranking");if(!el)return;
-    const ranking=aggregateCustomerRanking(_statsYear);
+    const ranking=aggregateCustomerRanking(_statsYear,_statsRankMonth);
+    if(ranking.length===0)return;
     const labels=ranking.map(r=>r[0]);
     const values=ranking.map(r=>r[1]);
     _statsCharts.ranking=new Chart(el,{type:"bar",data:{labels,datasets:[{label:"売上",data:values,backgroundColor:CHART_COLORS.slice(0,ranking.length),borderRadius:4}]},options:{responsive:true,maintainAspectRatio:false,indexAxis:"y",plugins:{legend:{display:false}},scales:{x:{ticks:yen,beginAtZero:true}}}});
