@@ -138,7 +138,7 @@ watchKeys.forEach(fsKey => {
         else if (localKey === "pv_invoice_counters") st.invoiceCounters = val;
         else if (localKey === "pv_closing_days") st.closingDays = val;
         else if (localKey === "pv_min") st.minG = val;
-        else if (localKey === "pv_cycles") Object.assign(DELIVERY_CYCLES, val);
+        else if (localKey === "pv_cycles") mergeCycles(val);
       }
       if (st && !st.showPrint && !st.editingHistory && !st.customerDetail && typeof render === "function") {
         render();
@@ -157,7 +157,7 @@ window._startFirestoreSync = async function() {
       try { localStorage.setItem(localKey, JSON.stringify(val)); } catch{}
       // DELIVERY_CYCLESも初回ロード時に反映
       if(localKey === "pv_cycles" && typeof DELIVERY_CYCLES !== "undefined") {
-        try { Object.assign(DELIVERY_CYCLES, val); } catch{}
+        try { mergeCycles(val); } catch{}
       }
     }
   }));
@@ -350,7 +350,7 @@ let state={
 };
 
 // DELIVERY_CYCLESをlocalStorageから復元（保存済みがあれば上書き）
-(function(){try{const saved=localStorage.getItem("pv_cycles");if(saved){const obj=JSON.parse(saved);Object.assign(DELIVERY_CYCLES,obj);}}catch{}})();
+(function(){try{const saved=localStorage.getItem("pv_cycles");if(saved){const obj=JSON.parse(saved);mergeCycles(obj);}}catch{}})();
 function saveCycles(){try{localStorage.setItem("pv_cycles",JSON.stringify(DELIVERY_CYCLES));}catch{}if(window._fsSave)window._fsSave("pv_cycles",DELIVERY_CYCLES).catch(e=>console.error("Firestore cycles save error",e));}
 function load(k,fb){try{const r=localStorage.getItem(k);return r?JSON.parse(r):fb;}catch{return fb;}}
 function save(k,v){
@@ -383,6 +383,16 @@ function formatTierLabel(rec){
 }
 function findPriceRecord(customer,code){return state.prices.find(p=>p.customer===customer&&p.code===code);}
 function normName(s){return(s||"").replace(/\s+/g,"");}
+function mergeCycles(src){
+  if(!src||typeof src!=="object")return;
+  for(const k in src){const v=src[k];if(typeof v==="string"?v.trim():v)DELIVERY_CYCLES[k]=v;}
+}
+function getCycleForCustomer(name){
+  if(DELIVERY_CYCLES[name])return DELIVERY_CYCLES[name];
+  const n=normName(name);
+  for(const k in DELIVERY_CYCLES){if(DELIVERY_CYCLES[k]&&normName(k)===n)return DELIVERY_CYCLES[k];}
+  return "";
+}
 const SHAKO_YOKOHAMA_CUSTOMER="写光レンタル販売株式会社　横浜センター";
 function renameCustomerData(oldName,newName){
   if(!oldName||!newName||oldName===newName)return;
@@ -2052,7 +2062,7 @@ function getUnissuedAlerts(){
   const targets=[yesterday,today,tomorrow];
   const result=[];
   state.customers.forEach(c=>{
-    const cycle=DELIVERY_CYCLES[c.name];
+    const cycle=getCycleForCustomer(c.name);
     if(!cycle)return;
     targets.forEach(dt=>{
       const dayName=DAY_NAMES[dt.getDay()];
@@ -2855,7 +2865,7 @@ window._appStart = async function() {
     const savedCycles=localStorage.getItem("pv_cycles");
     if(savedCycles){
       const obj=JSON.parse(savedCycles);
-      if(obj&&typeof obj==="object"&&Object.keys(obj).length>0)Object.assign(DELIVERY_CYCLES,obj);
+      if(obj&&typeof obj==="object"&&Object.keys(obj).length>0)mergeCycles(obj);
     }
   }catch{}
   try{applyShakoCustomerNameFix();}catch(e){console.warn("applyShakoCustomerNameFix",e);}
