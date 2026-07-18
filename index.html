@@ -591,7 +591,10 @@ function renderIssueTab(){
   const freeInput=iss.freeCustomer?`<input type="text" placeholder="客先名を入力してください" value="${iss.customer}" oninput="setFreeCustomer(this.value)" style="margin-top:6px;width:100%;padding:9px 12px;border:1px solid #1a73e8;border-radius:8px;font-size:14px">`:""
   const custDisplayName=iss.freeCustomer?"＋ リスト外の客先を入力":iss.customer
   return`<div style="position:sticky;top:0;z-index:100;background:#f8f7f4;padding:16px 0 8px">
-  <h2 style="font-size:20px;font-weight:600;margin-bottom:12px;color:#1a1a2e">納品書発行</h2>
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;gap:12px">
+    <h2 style="font-size:20px;font-weight:600;color:#1a1a2e;margin:0">納品書発行</h2>
+    <div style="font-size:12px;color:#999;text-align:right;line-height:1.4;white-space:nowrap">🖨️ 印刷設定：<span style="color:#c17a00;font-weight:600">B5・横向き・余白なし</span></div>
+  </div>
   <div class="card" style="margin-bottom:0">
     <div class="grid3">
       <div><label class="lbl">客先</label><select onchange="selectCustomer(this.value)"><option value="">-- 客先を選択 --</option>${custOpts}<option value="__FREE__" ${iss.freeCustomer?"selected":""}>＋ リスト外の客先を入力</option></select>${freeInput}</div>
@@ -782,7 +785,7 @@ async function issueInvoice(){
   // 数量をリセット（前回の入力が残らないように）
   state.issue.items=state.issue.items.map(i=>({...i,qty:""}));
   state.issue.customItems=[{name:"",qty:"",price:""}];
-  state.printInvoice=inv;state.showPrint=true;render();
+  state.printInvoice=inv;render();renderPrintModal(true);
 }
 
 // --- History Tab ---
@@ -965,7 +968,7 @@ async function saveHistoryEdit(){
   state.editingHistory=null;showToast("修正を保存しました");render();
 }
 
-function reprintInvoice(id){const inv=state.history.find(h=>h.id===id);if(!inv)return;state.printInvoice=inv;state.showPrint=true;render();}
+function reprintInvoice(id){const inv=state.history.find(h=>h.id===id);if(!inv)return;state.printInvoice=inv;renderPrintModal(true);}
 
 let _invoiceLogVisible = false;
 async function toggleInvoiceLog(){
@@ -1880,10 +1883,9 @@ function renderGuideTab(){
 
 // --- Print Modal ---
 
-function renderPrintModal(){
+function renderPrintModal(directPrint){
   const inv=state.printInvoice;if(!inv)return;
   const modal=document.getElementById("print-modal");
-  modal.classList.remove("hidden");
   const displayItems=inv.items.filter(i=>i.isDeliverySite||parseFloat(i.qty)>0);
   const maxRows=11;
   const bdr="1px solid #000";
@@ -1969,6 +1971,15 @@ function renderPrintModal(){
     <div class="slot">${block(p.items,p.showTotal,p.showBiko,p.label,true)}</div>
     `).join("");
 
+  // print-area をbody直下に設置
+  let pa=document.getElementById("print-area");
+  if(!pa){pa=document.createElement("div");pa.id="print-area";document.body.appendChild(pa);}
+  pa.innerHTML=printHtml;
+
+  // プレビューを省略して直接ブラウザの印刷ダイアログを開く
+  if(directPrint){doPrint();return;}
+
+  modal.classList.remove("hidden");
   modal.innerHTML=`<div style="background:#fff;border-radius:12px;padding:24px;max-width:920px;width:95%;max-height:90vh;overflow-y:auto">
     <div style="display:flex;gap:12px;justify-content:flex-end;align-items:center;margin-bottom:16px">
       <button class="btn-cancel" style="padding:10px 20px;font-size:15px" onclick="closePrint()">閉じる</button>
@@ -1978,11 +1989,6 @@ function renderPrintModal(){
     ${previewHtml}
     <div style="margin-top:12px;font-size:13px;color:#c00;text-align:center;font-weight:600">⚠️ 印刷設定：用紙B5・横向き・<u>余白「なし」</u> を必ず選択してください</div>
   </div>`;
-
-  // print-area をbody直下に設置
-  let pa=document.getElementById("print-area");
-  if(!pa){pa=document.createElement("div");pa.id="print-area";document.body.appendChild(pa);}
-  pa.innerHTML=printHtml;
 }
 function downloadCSV(inv){
   if(!inv)return;
