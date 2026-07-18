@@ -2055,16 +2055,23 @@ function closePrint(){state.showPrint=false;state.printInvoice=null;document.get
 // ===== 未発行アラート =====
 function getUnissuedAlerts(){
   const today=new Date();
-  const yesterday=new Date(today);
-  yesterday.setDate(today.getDate()-1);
-  const tomorrow=new Date(today);
-  tomorrow.setDate(today.getDate()+1);
-  const targets=[yesterday,today,tomorrow];
+  const isSunday=d=>d.getDay()===0;
+  // 前の稼働日（日曜は完全休みなのでスキップ）
+  const prevDay=new Date(today);
+  do{prevDay.setDate(prevDay.getDate()-1);}while(isSunday(prevDay));
+  // 次の稼働日（日曜は完全休みなのでスキップ）
+  const nextDay=new Date(today);
+  do{nextDay.setDate(nextDay.getDate()+1);}while(isSunday(nextDay));
+  // 対象は「前の稼働日・本日・次の稼働日」。本日が日曜なら本日は除外
+  const targets=[prevDay];
+  if(!isSunday(today))targets.push(today);
+  targets.push(nextDay);
   const result=[];
   state.customers.forEach(c=>{
     const cycle=getCycleForCustomer(c.name);
     if(!cycle)return;
     targets.forEach(dt=>{
+      if(isSunday(dt))return; // 日曜はカウントしない
       const dayName=DAY_NAMES[dt.getDay()];
       if(!cycle.includes(dayName))return;
       // この日付に発行済みか確認
