@@ -92,6 +92,7 @@ const FS_KEYS = {
   pv_closing_days: "closingDays",
   pv_min: "minG",
   pv_cycles: "cycles",
+  pv_skip_holidays: "skipHolidays",
   pv_adminpass: "adminpass",
   pv_githubPAT: "githubPAT"
 };
@@ -115,7 +116,7 @@ window._fsLoad = async function(k) {
 };
 
 // リアルタイム同期（ログイン後に開始）
-const watchKeys = ["customers","products","prices","history","invoiceCounters","closingDays","minG","cycles"];
+const watchKeys = ["customers","products","prices","history","invoiceCounters","closingDays","minG","cycles","skipHolidays"];
 window._startRealtimeSync = function() {
 if(window._realtimeSyncStarted)return;
 window._realtimeSyncStarted=true;
@@ -139,6 +140,7 @@ watchKeys.forEach(fsKey => {
         else if (localKey === "pv_closing_days") st.closingDays = val;
         else if (localKey === "pv_min") st.minG = val;
         else if (localKey === "pv_cycles") mergeCycles(val);
+        else if (localKey === "pv_skip_holidays") st.skipHolidays = val;
       }
       if (st && !st.showPrint && !st.editingHistory && !st.customerDetail && typeof render === "function") {
         render();
@@ -325,6 +327,7 @@ let state={
   history:load("pv_history",[]),
   invoiceCounters:load("pv_invoice_counters",{}),
   closingDays:load("pv_closing_days",{}),
+  skipHolidays:load("pv_skip_holidays",{}),
   minG:load("pv_min",INIT_MIN),
   issue:{customer:"",freeCustomer:false,deliveryDate:"",deliverySite:"",items:[],customItems:[{name:"",qty:"",price:""}],useCustom:false,memo:""},
   histSearch:"",
@@ -359,7 +362,7 @@ function save(k,v){
     window._fsSave(k,v).catch(e=>console.error("Firestore save error",k,e));
   }
 }
-function saveAll(){save("pv_customers",state.customers);save("pv_products",state.products);save("pv_prices",state.prices);save("pv_history",state.history);save("pv_min",state.minG);save("pv_invoice_counters",state.invoiceCounters);save("pv_closing_days",state.closingDays);saveCycles();}
+function saveAll(){save("pv_customers",state.customers);save("pv_products",state.products);save("pv_prices",state.prices);save("pv_history",state.history);save("pv_min",state.minG);save("pv_invoice_counters",state.invoiceCounters);save("pv_closing_days",state.closingDays);save("pv_skip_holidays",state.skipHolidays);saveCycles();}
 
 const DEFAULT_QTY_TIERS=()=>[{min:1,max:null,price:0}];
 function hasQtyTiers(rec){return rec&&Array.isArray(rec.qtyTiers)&&rec.qtyTiers.length>0;}
@@ -393,6 +396,87 @@ function getCycleForCustomer(name){
   for(const k in DELIVERY_CYCLES){if(DELIVERY_CYCLES[k]&&normName(k)===n)return DELIVERY_CYCLES[k];}
   return "";
 }
+// デフォルトは祝日でも納品（skipHolidays[name]===true のときだけ祝日を飛ばす）
+function skipsHolidays(name){
+  if(!name||!state.skipHolidays)return false;
+  if(state.skipHolidays[name]===true)return true;
+  const n=normName(name);
+  for(const k in state.skipHolidays){if(state.skipHolidays[k]===true&&normName(k)===n)return true;}
+  return false;
+}
+function nthMonday(y,m,n){ // m:1-12, n:第n月曜
+  const first=new Date(y,m-1,1);
+  const firstMon=1+((8-first.getDay())%7);
+  return firstMon+(n-1)*7;
+}
+function springEquinox(y){ // 春分の日（近似式）
+  return Math.floor(20.8431+0.242194*(y-1980)-Math.floor((y-1980)/4));
+}
+function autumnEquinox(y){ // 秋分の日（近似式）
+  return Math.floor(23.2488+0.242194*(y-1980)-Math.floor((y-1980)/4));
+}
+function japaneseHolidaySet(y){
+  const set=new Set();
+  const add=(m,d)=>set.add(`${y}-${String(m).padStart(2,"0")}-${String(d).padStart(2,"0")}`);
+  // 固定祝日
+  add(1,1);  // 元日
+  add(2,11); // 建国記念の日
+  if(y>=2020)add(2,23); // 天皇誕生日（2019年5月1日即位、2020〜2/23）
+  add(4,29); // 昭和の日
+  add(5,3);  // 憲法記念日
+  add(5,4);  // みどりの日
+  add(5,5);  // こどもの日
+  if(y>=2016)add(8,11); // 山の日
+  add(11,3); // 文化の日
+  add(11,23);// 勤労感謝の日
+  // ハッピーマンデー
+  add(1,nthMonday(y,1,2)); // 成人の日
+  if(y>=2003)add(7,nthMonday(y,7,3)); // 海の日（7月第3月曜）
+  else add(7,20);
+  add(9,nthMonday(y,9,3)); // 敬老の日
+  if(y>=2020)add(10,nthMonday(y,10,2)); // スポーツの日
+  else if(y>=2000)add(10,nthMonday(y,10,2)); // 体育の日
+  else add(10,10);
+  // 春分・秋分
+  add(3,springEquinox(y));
+  add(9,autumnEquinox(y));
+  // 振替休日（日曜と重なった祝日の翌日以降、祝日でない日まで）
+  const keys=[...set].sort();
+  keys.forEach(k=>{
+    const[yy,mm,dd]=k.split("-").map(Number);
+    const d=new Date(yy,mm-1,dd);
+    if(d.getDay()!==0)return;
+    const n=new Date(d);
+    do{n.setDate(n.getDate()+1);}while(set.has(toInput(n)));
+    add(n.getMonth()+1,n.getDate());
+  });
+  // 国民の休日（祝日と祝日に挟まれた平日）
+  const sorted=[...set].sort();
+  for(let i=0;i<sorted.length-1;i++){
+    const a=new Date(sorted[i]);
+    const b=new Date(sorted[i+1]);
+    const diff=(b-a)/86400000;
+    if(diff===2){
+      const mid=new Date(a);mid.setDate(a.getDate()+1);
+      if(mid.getDay()!==0)add(mid.getMonth()+1,mid.getDate());
+    }
+  }
+  return set;
+}
+const _holidayCache={};
+function isJapaneseHoliday(d){
+  if(!(d instanceof Date)||isNaN(d))return false;
+  const y=d.getFullYear();
+  if(!_holidayCache[y])_holidayCache[y]=japaneseHolidaySet(y);
+  return _holidayCache[y].has(toInput(d));
+}
+function isDeliveryDay(name,d){
+  const cycle=getCycleForCustomer(name);
+  if(!cycle)return false;
+  if(!cycle.includes(DAY_NAMES[d.getDay()]))return false;
+  if(skipsHolidays(name)&&isJapaneseHoliday(d))return false;
+  return true;
+}
 const SHAKO_YOKOHAMA_CUSTOMER="写光レンタル販売株式会社　横浜センター";
 function renameCustomerData(oldName,newName){
   if(!oldName||!newName||oldName===newName)return;
@@ -400,6 +484,7 @@ function renameCustomerData(oldName,newName){
   if(state.minG[oldName]!==undefined){state.minG[newName]=state.minG[oldName];delete state.minG[oldName];}
   if(DELIVERY_CYCLES[oldName]!==undefined){DELIVERY_CYCLES[newName]=DELIVERY_CYCLES[oldName];delete DELIVERY_CYCLES[oldName];}
   if(state.closingDays[oldName]!==undefined){state.closingDays[newName]=state.closingDays[oldName];delete state.closingDays[oldName];}
+  if(state.skipHolidays&&state.skipHolidays[oldName]!==undefined){state.skipHolidays[newName]=state.skipHolidays[oldName];delete state.skipHolidays[oldName];}
   state.prices=state.prices.map(p=>p.customer===oldName?{...p,customer:newName}:p);
   state.history=state.history.map(h=>h.customer===oldName?{...h,customer:newName}:h);
 }
@@ -412,6 +497,7 @@ function applyShakoCustomerNameFix(){
   save("pv_customers",state.customers);
   save("pv_min",state.minG);
   save("pv_closing_days",state.closingDays);
+  save("pv_skip_holidays",state.skipHolidays||{});
   save("pv_prices",state.prices);
   save("pv_history",state.history);
   saveCycles();
@@ -419,6 +505,7 @@ function applyShakoCustomerNameFix(){
     window._fsSave("pv_customers",state.customers).catch(()=>{});
     window._fsSave("pv_min",state.minG).catch(()=>{});
     window._fsSave("pv_closing_days",state.closingDays).catch(()=>{});
+    window._fsSave("pv_skip_holidays",state.skipHolidays||{}).catch(()=>{});
     window._fsSave("pv_prices",state.prices).catch(()=>{});
     window._fsSave("pv_history",state.history).catch(()=>{});
   }
@@ -427,7 +514,17 @@ function applyShakoCustomerNameFix(){
 function fmtDate(d){if(!d)return"";const dt=d instanceof Date?d:new Date(d);if(isNaN(dt))return"";return`${dt.getFullYear()}/${String(dt.getMonth()+1).padStart(2,"0")}/${String(dt.getDate()).padStart(2,"0")}`;}
 function toInput(d){if(!d)return"";const dt=d instanceof Date?d:new Date(d);if(isNaN(dt))return"";return`${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,"0")}-${String(dt.getDate()).padStart(2,"0")}`;}
 function fromInput(s){if(!s)return new Date();const[y,m,d]=s.split("-").map(Number);return new Date(y,m-1,d);}
-function nextDelivery(name){const cycle=DELIVERY_CYCLES[name];if(!cycle)return new Date();const t=new Date();for(let i=1;i<=7;i++){const d=new Date(t);d.setDate(t.getDate()+i);if(cycle.includes(DAY_NAMES[d.getDay()]))return d;}return new Date();}
+function nextDelivery(name){
+  const cycle=getCycleForCustomer(name);
+  if(!cycle)return new Date();
+  const t=new Date();
+  for(let i=1;i<=21;i++){
+    const d=new Date(t);
+    d.setDate(t.getDate()+i);
+    if(isDeliveryDay(name,d))return d;
+  }
+  return new Date();
+}
 function nextInvoiceNo(custName){
   const prefix=(custName==="__FREE__")?"999":(()=>{const c=state.customers.find(x=>x.name===custName);return c?c.id:"999";})();
   const fromHistory=state.history.filter(h=>h.invoiceNo&&h.invoiceNo.startsWith(prefix+"-P")).map(h=>parseInt((h.invoiceNo.split("-P")[1])||0));
@@ -600,7 +697,7 @@ function renderIssueTab(){
       <div><label class="lbl">客先</label><select onchange="selectCustomer(this.value)"><option value="">-- 客先を選択 --</option>${custOpts}<option value="__FREE__" ${iss.freeCustomer?"selected":""}>＋ リスト外の客先を入力</option></select>${freeInput}</div>
       <div><label class="lbl">入力日</label><input type="text" value="${fmtDate(today)}" readonly></div>
       <div><label class="lbl">納品日</label>${(iss.customer||iss.freeCustomer)
-        ?`<input type="date" value="${iss.deliveryDate}" onchange="state.issue.deliveryDate=this.value;render()">${cycle?`<div style="margin-top:4px;font-size:12px;color:#888">サイクル：${cycle}</div>`:""}`
+        ?`<input type="date" value="${iss.deliveryDate}" onchange="state.issue.deliveryDate=this.value;render()">${cycle?`<div style="margin-top:4px;font-size:12px;color:#888">サイクル：${cycle}${skipsHolidays(iss.customer)?"（祝日は飛ばす）":""}</div>`:""}`
         :`<input type="date" style="color:transparent">`}
       </div>
     </div>
@@ -1040,7 +1137,7 @@ function renderCustomerTab(){
   const filtered=state.customers.filter(c=>!search||c.name.includes(search)||c.id.includes(search));
   const rows=filtered.map(c=>{
     const cd=state.closingDays[c.name];const cdLabel=cd===0?"月末〆":cd?cd+"日〆":"—";
-    return`<tr><td style="width:70px"><span class="code-badge">${c.id}</span></td><td><a href="#" onclick="openCustomerDetail('${c.id}');return false;" style="color:#1a73e8;text-decoration:none;font-weight:500">${c.name}</a></td><td style="width:120px">${state.minG[c.name]>0?"¥"+(state.minG[c.name]).toLocaleString():"—"}</td><td style="width:100px">${(DELIVERY_CYCLES[c.name]||"—")}</td><td style="width:90px">${cdLabel}</td><td style="width:160px"><div style="display:flex;gap:6px"><button class="btn-edit" onclick="openCustomerDetail('${c.id}')">詳細編集</button><button class="btn-danger" onclick="deleteCustomer('${c.id}')">削除</button></div></td></tr>`;
+    return`<tr><td style="width:70px"><span class="code-badge">${c.id}</span></td><td><a href="#" onclick="openCustomerDetail('${c.id}');return false;" style="color:#1a73e8;text-decoration:none;font-weight:500">${c.name}</a></td><td style="width:120px">${state.minG[c.name]>0?"¥"+(state.minG[c.name]).toLocaleString():"—"}</td><td style="width:120px">${(DELIVERY_CYCLES[c.name]||"—")}${skipsHolidays(c.name)?'<div style="font-size:10px;color:#b45309">祝日飛ばす</div>':""}</td><td style="width:90px">${cdLabel}</td><td style="width:160px"><div style="display:flex;gap:6px"><button class="btn-edit" onclick="openCustomerDetail('${c.id}')">詳細編集</button><button class="btn-danger" onclick="deleteCustomer('${c.id}')">削除</button></div></td></tr>`;
   }).join("");
   if(state.showAddCustomer&&!state.newCustomer.id){const ids=state.customers.map(c=>parseInt(c.id)||0);state.newCustomer.id=String(Math.max(...ids)+1).padStart(3,"0");}
   const DAY_BTN_NEW=["月","火","水","木","金","土","日"];
@@ -1068,6 +1165,7 @@ function openCustomerDetail(id){
     mg:state.minG[c.name]||0,
     cycle:DELIVERY_CYCLES[c.name]||"",
     closingDay:state.closingDays[c.name]!==undefined?state.closingDays[c.name]:"",
+    skipHoliday:skipsHolidays(c.name),
     prices:custPrices.map(p=>({...p,qtyTiers:p.qtyTiers?p.qtyTiers.map(t=>({...t})):undefined})),
     newPriceMode:"fixed",
     newPriceTiers:DEFAULT_QTY_TIERS(),
@@ -1145,6 +1243,14 @@ function renderCustomerDetail(){
     <h3>納品サイクル</h3>
     <div style="display:flex;gap:8px;flex-wrap:wrap">${cycleButtons}</div>
     <div style="margin-top:10px;font-size:13px;color:#888">現在の設定：<strong>${d.cycle||"未設定"}</strong></div>
+    <div style="margin-top:16px">
+      <label class="lbl">祝日の扱い</label>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:4px">
+        <button type="button" onclick="state.customerDetail.skipHoliday=false;render()" style="padding:6px 16px;border:1px solid ${!d.skipHoliday?"#1a1a2e":"#ddd"};background:${!d.skipHoliday?"#1a1a2e":"#fff"};color:${!d.skipHoliday?"#e8d5b7":"#333"};border-radius:6px;cursor:pointer;font-size:14px">祝日でも納品する</button>
+        <button type="button" onclick="state.customerDetail.skipHoliday=true;render()" style="padding:6px 16px;border:1px solid ${d.skipHoliday?"#1a1a2e":"#ddd"};background:${d.skipHoliday?"#1a1a2e":"#fff"};color:${d.skipHoliday?"#e8d5b7":"#333"};border-radius:6px;cursor:pointer;font-size:14px">祝日は飛ばす</button>
+      </div>
+      <div style="margin-top:6px;font-size:12px;color:#888">日本の祝日（振替休日・国民の休日含む）を自動判定。デフォルトは「祝日でも納品する」。</div>
+    </div>
   </div>
 
   <div class="card">
@@ -1280,17 +1386,22 @@ function removeDetailPrice(i){
 
 function saveCustomerDetail(){
   const d=state.customerDetail;
+  if(!state.skipHolidays)state.skipHolidays={};
   state.customers=state.customers.map(c=>c.id===d.id?{...c,name:d.name}:c);
   if(d.originalName!==d.name){
     state.minG[d.name]=state.minG[d.originalName]||0;
     delete state.minG[d.originalName];
     DELIVERY_CYCLES[d.name]=DELIVERY_CYCLES[d.originalName];
     delete DELIVERY_CYCLES[d.originalName];
+    if(state.closingDays[d.originalName]!==undefined){state.closingDays[d.name]=state.closingDays[d.originalName];delete state.closingDays[d.originalName];}
+    if(state.skipHolidays[d.originalName]!==undefined){state.skipHolidays[d.name]=state.skipHolidays[d.originalName];delete state.skipHolidays[d.originalName];}
     state.prices=state.prices.map(p=>p.customer===d.originalName?{...p,customer:d.name}:p);
   }
   state.minG[d.name]=d.mg;
   DELIVERY_CYCLES[d.name]=d.cycle;
   if(d.closingDay!=="")state.closingDays[d.name]=d.closingDay;
+  if(d.skipHoliday)state.skipHolidays[d.name]=true;
+  else delete state.skipHolidays[d.name];
   state.prices=state.prices.filter(p=>p.customer!==d.name);
   state.prices.push(...d.prices.map(p=>{
     const row={...p,customer:d.name};
@@ -1298,8 +1409,8 @@ function saveCustomerDetail(){
     return row;
   }));
   state.customerDetail=null;
-  save("pv_customers",state.customers);save("pv_min",state.minG);save("pv_closing_days",state.closingDays);saveCycles();if(window._fsSave){window._fsSave("pv_customers",state.customers);window._fsSave("pv_min",state.minG);window._fsSave("pv_closing_days",state.closingDays);window._fsSave("pv_prices",state.prices);}
-  if(window._saveDataEditLog)window._saveDataEditLog("客先",`${d.name} を保存（サイクル:${d.cycle} 最低保証:${d.mg} 締め日:${d.closingDay}）`);
+  save("pv_customers",state.customers);save("pv_min",state.minG);save("pv_closing_days",state.closingDays);save("pv_skip_holidays",state.skipHolidays);saveCycles();if(window._fsSave){window._fsSave("pv_customers",state.customers);window._fsSave("pv_min",state.minG);window._fsSave("pv_closing_days",state.closingDays);window._fsSave("pv_skip_holidays",state.skipHolidays);window._fsSave("pv_prices",state.prices);}
+  if(window._saveDataEditLog)window._saveDataEditLog("客先",`${d.name} を保存（サイクル:${d.cycle} 最低保証:${d.mg} 締め日:${d.closingDay} 祝日:${d.skipHoliday?"飛ばす":"納品あり"}）`);
   showToast("保存しました");render();
 }
 
@@ -1706,14 +1817,14 @@ function exportMeisaiJson() {
   showToast("書き出し完了：" + summary);
 }
 
-function exportData(){const data={customers:state.customers,products:state.products,prices:state.prices,history:state.history,minG:state.minG,closingDays:state.closingDays,invoiceCounters:state.invoiceCounters,cycles:DELIVERY_CYCLES,exportDate:new Date().toISOString()};const blob=new Blob([JSON.stringify(data,null,2)],{type:"application/json"});const url=URL.createObjectURL(blob);const a=document.createElement("a");a.href=url;a.download=`pourvous_backup_${new Date().toLocaleDateString("ja")}.json`;a.click();showToast("バックアップをdownloadしました");}
-function importData(el){const file=el.files[0];if(!file)return;const r=new FileReader();r.onload=e=>{try{const d=JSON.parse(e.target.result);if(d.customers)state.customers=d.customers;if(d.products)state.products=d.products;if(d.prices)state.prices=d.prices;if(d.history)state.history=d.history;if(d.minG)state.minG=d.minG;if(d.closingDays)state.closingDays=d.closingDays;if(d.invoiceCounters)state.invoiceCounters=d.invoiceCounters;if(d.cycles)Object.assign(DELIVERY_CYCLES,d.cycles);save("pv_customers",state.customers);save("pv_products",state.products);save("pv_prices",state.prices);save("pv_history",state.history);save("pv_min",state.minG);save("pv_invoice_counters",state.invoiceCounters);save("pv_closing_days",state.closingDays);saveCycles();if(window._fsSave){const _ks=["pv_customers","pv_products","pv_prices","pv_history","pv_min","pv_invoice_counters","pv_closing_days"];const _vs=[state.customers,state.products,state.prices,state.history,state.minG,state.invoiceCounters,state.closingDays];_ks.forEach((k,i)=>window._fsSave(k,_vs[i]));window._fsSave("pv_cycles",DELIVERY_CYCLES);}showToast("インポートしました");render();}catch{showToast("読み込みに失敗しました","error");}};r.readAsText(file);}
+function exportData(){const data={customers:state.customers,products:state.products,prices:state.prices,history:state.history,minG:state.minG,closingDays:state.closingDays,skipHolidays:state.skipHolidays||{},invoiceCounters:state.invoiceCounters,cycles:DELIVERY_CYCLES,exportDate:new Date().toISOString()};const blob=new Blob([JSON.stringify(data,null,2)],{type:"application/json"});const url=URL.createObjectURL(blob);const a=document.createElement("a");a.href=url;a.download=`pourvous_backup_${new Date().toLocaleDateString("ja")}.json`;a.click();showToast("バックアップをdownloadしました");}
+function importData(el){const file=el.files[0];if(!file)return;const r=new FileReader();r.onload=e=>{try{const d=JSON.parse(e.target.result);if(d.customers)state.customers=d.customers;if(d.products)state.products=d.products;if(d.prices)state.prices=d.prices;if(d.history)state.history=d.history;if(d.minG)state.minG=d.minG;if(d.closingDays)state.closingDays=d.closingDays;if(d.skipHolidays)state.skipHolidays=d.skipHolidays;if(d.invoiceCounters)state.invoiceCounters=d.invoiceCounters;if(d.cycles)Object.assign(DELIVERY_CYCLES,d.cycles);save("pv_customers",state.customers);save("pv_products",state.products);save("pv_prices",state.prices);save("pv_history",state.history);save("pv_min",state.minG);save("pv_invoice_counters",state.invoiceCounters);save("pv_closing_days",state.closingDays);save("pv_skip_holidays",state.skipHolidays||{});saveCycles();if(window._fsSave){const _ks=["pv_customers","pv_products","pv_prices","pv_history","pv_min","pv_invoice_counters","pv_closing_days","pv_skip_holidays"];const _vs=[state.customers,state.products,state.prices,state.history,state.minG,state.invoiceCounters,state.closingDays,state.skipHolidays||{}];_ks.forEach((k,i)=>window._fsSave(k,_vs[i]));window._fsSave("pv_cycles",DELIVERY_CYCLES);}showToast("インポートしました");render();}catch{showToast("読み込みに失敗しました","error");}};r.readAsText(file);}
 function resetAll(){
   const pass=prompt("初期化するには管理者パスワードを入力してください");
   if(pass===null)return;
   if(pass!==_userTabAdminPass){alert("パスワードが違います");return;}
   if(!confirm("全データを初期化しますか？この操作は取り消せません。"))return;
-  state.customers=[...INIT_CUSTOMERS];state.products=[...INIT_PRODUCTS];state.prices=[...INIT_PRICES];state.history=[];state.minG={...INIT_MIN};Object.keys(DELIVERY_CYCLES).forEach(k=>delete DELIVERY_CYCLES[k]);save("pv_customers",state.customers);save("pv_products",state.products);save("pv_prices",state.prices);save("pv_history",state.history);save("pv_min",state.minG);save("pv_invoice_counters",state.invoiceCounters);save("pv_closing_days",state.closingDays);saveCycles();if(window._fsSave){const _ks=["pv_customers","pv_products","pv_prices","pv_history","pv_min","pv_invoice_counters","pv_closing_days"];const _vs=[state.customers,state.products,state.prices,state.history,state.minG,state.invoiceCounters,state.closingDays];_ks.forEach((k,i)=>window._fsSave(k,_vs[i]));window._fsSave("pv_cycles",DELIVERY_CYCLES);}showToast("初期化しました");render();
+  state.customers=[...INIT_CUSTOMERS];state.products=[...INIT_PRODUCTS];state.prices=[...INIT_PRICES];state.history=[];state.minG={...INIT_MIN};state.skipHolidays={};Object.keys(DELIVERY_CYCLES).forEach(k=>delete DELIVERY_CYCLES[k]);save("pv_customers",state.customers);save("pv_products",state.products);save("pv_prices",state.prices);save("pv_history",state.history);save("pv_min",state.minG);save("pv_invoice_counters",state.invoiceCounters);save("pv_closing_days",state.closingDays);save("pv_skip_holidays",state.skipHolidays);saveCycles();if(window._fsSave){const _ks=["pv_customers","pv_products","pv_prices","pv_history","pv_min","pv_invoice_counters","pv_closing_days","pv_skip_holidays"];const _vs=[state.customers,state.products,state.prices,state.history,state.minG,state.invoiceCounters,state.closingDays,state.skipHolidays];_ks.forEach((k,i)=>window._fsSave(k,_vs[i]));window._fsSave("pv_cycles",DELIVERY_CYCLES);}showToast("初期化しました");render();
 }
 
 // --- Guide Tab ---
@@ -2078,8 +2189,7 @@ function getUnissuedAlerts(){
     if(!cycle)return;
     targets.forEach(dt=>{
       if(isSunday(dt))return; // 日曜はカウントしない
-      const dayName=DAY_NAMES[dt.getDay()];
-      if(!cycle.includes(dayName))return;
+      if(!isDeliveryDay(c.name,dt))return;
       // この日付に発行済みか確認
       const dateStr=toInput(dt);
       const issued=state.history.some(h=>{
@@ -2091,7 +2201,7 @@ function getUnissuedAlerts(){
       if(!issued){
         const todayStr=toInput(today);
         const label=dateStr===todayStr?"本日":dateStr<todayStr?"昨日":"明日";
-        result.push({customer:c.name,date:dt,dateStr,label,dayName});
+        result.push({customer:c.name,date:dt,dateStr,label,dayName:DAY_NAMES[dt.getDay()]});
       }
     });
   });
@@ -2872,7 +2982,7 @@ function drawStatsCharts(){
 
 window._appStart = async function() {
   window._state=state;
-  const keys=[["pv_customers","customers"],["pv_products","products"],["pv_prices","prices"],["pv_history","history"],["pv_invoice_counters","invoiceCounters"],["pv_closing_days","closingDays"],["pv_min","minG"]];
+  const keys=[["pv_customers","customers"],["pv_products","products"],["pv_prices","prices"],["pv_history","history"],["pv_invoice_counters","invoiceCounters"],["pv_closing_days","closingDays"],["pv_skip_holidays","skipHolidays"],["pv_min","minG"]];
   keys.forEach(([k,prop])=>{const v=localStorage.getItem(k);if(v)try{state[prop]=JSON.parse(v);}catch{}});
   try{
     const savedCycles=localStorage.getItem("pv_cycles");
