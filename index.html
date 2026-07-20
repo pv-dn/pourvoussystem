@@ -685,7 +685,7 @@ function renderIssueTab(){
     </div>
   </div>`;
 
-  const freeInput=iss.freeCustomer?`<input type="text" placeholder="客先名を入力してください" value="${iss.customer}" oninput="setFreeCustomer(this.value)" style="margin-top:6px;width:100%;padding:9px 12px;border:1px solid #1a73e8;border-radius:8px;font-size:14px">`:""
+  const freeInput=iss.freeCustomer?`<input type="text" id="free-customer-input" placeholder="客先名を入力してください" value="${String(iss.customer||"").replace(/&/g,"&amp;").replace(/"/g,"&quot;").replace(/</g,"&lt;")}" oninput="state.issue.customer=this.value" style="margin-top:6px;width:100%;padding:9px 12px;border:1px solid #1a73e8;border-radius:8px;font-size:14px">`:""
   const custDisplayName=iss.freeCustomer?"＋ リスト外の客先を入力":iss.customer
   return`<div style="position:sticky;top:0;z-index:100;background:#f8f7f4;padding:16px 0 8px">
   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;gap:12px">
@@ -736,7 +736,9 @@ function selectCustomer(name){
     state.issue.useCustom=true;
     const today=new Date();today.setDate(today.getDate()+1);
     state.issue.deliveryDate=toInput(today);
-    render();return;
+    render();
+    setTimeout(()=>{const el=document.getElementById("free-customer-input");if(el)el.focus();},50);
+    return;
   }
   state.issue.freeCustomer=false;
   state.issue.customer=name;
@@ -756,9 +758,8 @@ function selectCustomer(name){
   render();
 }
 function setFreeCustomer(val){
+  // 入力中にrender()するとフォーカスが消えるため、状態更新のみ
   state.issue.customer=val;
-  if(window._freeCustomerTimer)clearTimeout(window._freeCustomerTimer);
-  window._freeCustomerTimer=setTimeout(()=>render(),150);
 }
 function setItemQty(i,v){
   state.issue.items[i].qty=v;
