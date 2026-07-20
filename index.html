@@ -2034,7 +2034,8 @@ function renderPrintModal(directPrint){
         </tr></thead>
         <tbody>${rows}</tbody>
       </table>
-      <div style="display:flex;justify-content:flex-end;border:${bdr};border-top:2px solid #000;margin-top:-1px">
+      <div style="display:flex;align-items:center;border:${bdr};border-top:2px solid #000;margin-top:-1px">
+        <div style="flex:1;text-align:right;padding:3px 8px;font-size:11px;white-space:nowrap">${showTotal?"税抜き価格です":"\u00a0"}</div>
         <div style="border-left:${bdr};padding:3px 8px;font-size:11px;display:flex;align-items:center">${showTotal?"合\u3000計":"小\u3000計"}</div>
         <div style="padding:3px 10px;font-size:16px;font-weight:700;min-width:85px;text-align:right">¥${showTotal?totalVal.toLocaleString():subtotal.toLocaleString()}</div>
       </div>
