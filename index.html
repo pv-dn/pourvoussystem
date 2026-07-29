@@ -93,6 +93,7 @@ const FS_KEYS = {
   pv_min: "minG",
   pv_cycles: "cycles",
   pv_skip_holidays: "skipHolidays",
+  pv_unissued_none: "unissuedNone",
   pv_adminpass: "adminpass",
   pv_githubPAT: "githubPAT"
 };
@@ -116,7 +117,7 @@ window._fsLoad = async function(k) {
 };
 
 // リアルタイム同期（ログイン後に開始）
-const watchKeys = ["customers","products","prices","history","invoiceCounters","closingDays","minG","cycles","skipHolidays"];
+const watchKeys = ["customers","products","prices","history","invoiceCounters","closingDays","minG","cycles","skipHolidays","unissuedNone"];
 window._startRealtimeSync = function() {
 if(window._realtimeSyncStarted)return;
 window._realtimeSyncStarted=true;
@@ -141,6 +142,7 @@ watchKeys.forEach(fsKey => {
         else if (localKey === "pv_min") st.minG = val;
         else if (localKey === "pv_cycles") mergeCycles(val);
         else if (localKey === "pv_skip_holidays") st.skipHolidays = val;
+        else if (localKey === "pv_unissued_none") st.unissuedNone = val;
       }
       if (st && !st.showPrint && !st.editingHistory && !st.customerDetail && typeof render === "function") {
         render();
@@ -245,8 +247,9 @@ td{padding:9px 8px;border-bottom:.5px solid #f0ede8;font-size:13px;overflow:hidd
 .unissued-sidebar-head h3{font-size:15px;font-weight:700;margin:0 0 4px}
 .unissued-sidebar-head p{font-size:12px;margin:0;opacity:.9}
 .unissued-sidebar-list{padding:8px}
-.unissued-sidebar-item{display:block;width:100%;text-align:left;background:#fff;border:1px solid #f0ede8;border-radius:8px;padding:10px 12px;margin-bottom:8px;cursor:pointer;font-family:inherit;transition:background .15s,border-color .15s}
-.unissued-sidebar-item:hover{background:#fff5f5;border-color:#fca5a5}
+.unissued-sidebar-item{display:block;width:100%;text-align:left;background:#fff;border:1px solid #f0ede8;border-radius:8px;padding:10px 12px;margin-bottom:8px;font-family:inherit}
+.unissued-sidebar-item-main{display:block;width:100%;text-align:left;background:transparent;border:none;padding:0;cursor:pointer;font-family:inherit}
+.unissued-sidebar-item-main:hover .unissued-sidebar-name{color:#b91c1c}
 .unissued-sidebar-item:last-child{margin-bottom:0}
 .unissued-sidebar-name{font-size:13px;font-weight:600;color:#1a1a2e;line-height:1.4;margin-bottom:6px;word-break:break-all}
 .unissued-sidebar-meta{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:11px;color:#666}
@@ -254,6 +257,8 @@ td{padding:9px 8px;border-bottom:.5px solid #f0ede8;font-size:13px;overflow:hidd
 .unissued-sidebar-badge.today{background:#fef3c7;color:#92400e}
 .unissued-sidebar-badge.tomorrow{background:#dbeafe;color:#1e40af}
 .unissued-sidebar-badge.yesterday{background:#fee2e2;color:#991b1b}
+.unissued-sidebar-none{margin-top:8px;width:100%;background:#f8f7f4;color:#666;border:1px solid #e0ddd6;border-radius:6px;padding:5px 8px;font-size:11px;cursor:pointer;font-family:inherit}
+.unissued-sidebar-none:hover{background:#eee;color:#333}
 .app-layout .content{flex:1;min-width:0;max-width:none;margin:0;padding:24px 0 32px}
 @media(max-width:960px){
   .app-layout{flex-direction:column;padding:0 16px}
@@ -328,6 +333,7 @@ let state={
   invoiceCounters:load("pv_invoice_counters",{}),
   closingDays:load("pv_closing_days",{}),
   skipHolidays:load("pv_skip_holidays",{}),
+  unissuedNone:load("pv_unissued_none",{}),
   minG:load("pv_min",INIT_MIN),
   issue:{customer:"",freeCustomer:false,deliveryDate:"",deliverySite:"",items:[],customItems:[{name:"",qty:"",price:""}],useCustom:false,memo:""},
   histSearch:"",
@@ -600,13 +606,16 @@ function updateUnissuedAlerts(){
     if(sidebar){
       sidebar.style.display="block";
       const items=alerts.map(a=>`
-        <button type="button" class="unissued-sidebar-item" onclick="selectCustomerFromSidebar(${JSON.stringify(a.customer)},${JSON.stringify(a.dateStr)})">
-          <div class="unissued-sidebar-name">${a.customer}</div>
-          <div class="unissued-sidebar-meta">
-            <span>${fmtDate(a.date)}（${a.dayName}）</span>
-            <span class="unissued-sidebar-badge ${a.label==="本日"?"today":a.label==="昨日"?"yesterday":"tomorrow"}">${a.label}</span>
-          </div>
-        </button>`).join("");
+        <div class="unissued-sidebar-item">
+          <button type="button" class="unissued-sidebar-item-main" onclick="selectCustomerFromSidebar(${JSON.stringify(a.customer)},${JSON.stringify(a.dateStr)})">
+            <div class="unissued-sidebar-name">${a.customer}</div>
+            <div class="unissued-sidebar-meta">
+              <span>${fmtDate(a.date)}（${a.dayName}）</span>
+              <span class="unissued-sidebar-badge ${a.label==="本日"?"today":a.label==="昨日"?"yesterday":"tomorrow"}">${a.label}</span>
+            </div>
+          </button>
+          <button type="button" class="unissued-sidebar-none" onclick="markUnissuedNone(${JSON.stringify(a.customer)},${JSON.stringify(a.dateStr)})">発行なし</button>
+        </div>`).join("");
       sidebar.innerHTML=`<div class="unissued-sidebar-card">
         <div class="unissued-sidebar-head">
           <h3>⚠️ 未発行 ${count}件</h3>
@@ -2194,6 +2203,7 @@ function getUnissuedAlerts(){
       if(!isDeliveryDay(c.name,dt))return;
       // この日付に発行済みか確認
       const dateStr=toInput(dt);
+      if(isUnissuedNone(c.name,dateStr))return;
       const issued=state.history.some(h=>{
         if(h.void)return false;
         if(h.customer!==c.name)return false;
@@ -2213,6 +2223,31 @@ function getUnissuedAlerts(){
     if(seen.has(key))return false;
     seen.add(key);return true;
   });
+}
+
+function unissuedNoneKey(customer,dateStr){return customer+"\t"+dateStr;}
+function isUnissuedNone(customer,dateStr){
+  if(!state.unissuedNone)return false;
+  return !!state.unissuedNone[unissuedNoneKey(customer,dateStr)];
+}
+function pruneUnissuedNone(){
+  if(!state.unissuedNone)return;
+  const cutoff=new Date();cutoff.setDate(cutoff.getDate()-14);
+  const cut=toInput(cutoff);
+  Object.keys(state.unissuedNone).forEach(k=>{
+    const dateStr=k.split("\t")[1]||"";
+    if(dateStr&&dateStr<cut)delete state.unissuedNone[k];
+  });
+}
+function markUnissuedNone(customer,dateStr){
+  if(!confirm(`${customer}\n納品日 ${fmtDate(dateStr)} を「発行なし」にしますか？\n未発行一覧から外れます。`))return;
+  if(!state.unissuedNone)state.unissuedNone={};
+  state.unissuedNone[unissuedNoneKey(customer,dateStr)]=true;
+  pruneUnissuedNone();
+  save("pv_unissued_none",state.unissuedNone);
+  if(window._fsSave)window._fsSave("pv_unissued_none",state.unissuedNone);
+  showToast("発行なしにしました");
+  render();
 }
 
 function selectCustomerFromSidebar(customerName,dateStr){
@@ -2984,7 +3019,7 @@ function drawStatsCharts(){
 
 window._appStart = async function() {
   window._state=state;
-  const keys=[["pv_customers","customers"],["pv_products","products"],["pv_prices","prices"],["pv_history","history"],["pv_invoice_counters","invoiceCounters"],["pv_closing_days","closingDays"],["pv_skip_holidays","skipHolidays"],["pv_min","minG"]];
+  const keys=[["pv_customers","customers"],["pv_products","products"],["pv_prices","prices"],["pv_history","history"],["pv_invoice_counters","invoiceCounters"],["pv_closing_days","closingDays"],["pv_skip_holidays","skipHolidays"],["pv_unissued_none","unissuedNone"],["pv_min","minG"]];
   keys.forEach(([k,prop])=>{const v=localStorage.getItem(k);if(v)try{state[prop]=JSON.parse(v);}catch{}});
   try{
     const savedCycles=localStorage.getItem("pv_cycles");
