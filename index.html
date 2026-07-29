@@ -605,17 +605,21 @@ function updateUnissuedAlerts(){
     if(layout)layout.classList.add("has-sidebar");
     if(sidebar){
       sidebar.style.display="block";
-      const items=alerts.map(a=>`
+      const items=alerts.map(a=>{
+        const cAttr=String(a.customer||"").replace(/&/g,"&amp;").replace(/"/g,"&quot;").replace(/</g,"&lt;");
+        const dAttr=String(a.dateStr||"").replace(/&/g,"&amp;").replace(/"/g,"&quot;");
+        return`
         <div class="unissued-sidebar-item">
-          <button type="button" class="unissued-sidebar-item-main" onclick="selectCustomerFromSidebar(${JSON.stringify(a.customer)},${JSON.stringify(a.dateStr)})">
-            <div class="unissued-sidebar-name">${a.customer}</div>
+          <button type="button" class="unissued-sidebar-item-main" data-customer="${cAttr}" data-datestr="${dAttr}" onclick="selectCustomerFromSidebar(this.dataset.customer,this.dataset.datestr)">
+            <div class="unissued-sidebar-name">${cAttr}</div>
             <div class="unissued-sidebar-meta">
               <span>${fmtDate(a.date)}（${a.dayName}）</span>
               <span class="unissued-sidebar-badge ${a.label==="本日"?"today":a.label==="昨日"?"yesterday":"tomorrow"}">${a.label}</span>
             </div>
           </button>
-          <button type="button" class="unissued-sidebar-none" onclick="markUnissuedNone(${JSON.stringify(a.customer)},${JSON.stringify(a.dateStr)})">発行なし</button>
-        </div>`).join("");
+          <button type="button" class="unissued-sidebar-none" data-customer="${cAttr}" data-datestr="${dAttr}" onclick="event.stopPropagation();markUnissuedNone(this.dataset.customer,this.dataset.datestr)">発行なし</button>
+        </div>`;
+      }).join("");
       sidebar.innerHTML=`<div class="unissued-sidebar-card">
         <div class="unissued-sidebar-head">
           <h3>⚠️ 未発行 ${count}件</h3>
@@ -2240,15 +2244,23 @@ function pruneUnissuedNone(){
   });
 }
 function markUnissuedNone(customer,dateStr){
-  if(!confirm(`${customer}\n納品日 ${fmtDate(dateStr)} を「発行なし」にしますか？\n未発行一覧から外れます。`))return;
-  if(!state.unissuedNone)state.unissuedNone={};
-  state.unissuedNone[unissuedNoneKey(customer,dateStr)]=true;
-  pruneUnissuedNone();
-  save("pv_unissued_none",state.unissuedNone);
-  if(window._fsSave)window._fsSave("pv_unissued_none",state.unissuedNone);
-  showToast("発行なしにしました");
-  render();
+  try{
+    if(!customer||!dateStr){showToast("客先または日付が不正です","error");return;}
+    const dateLabel=fmtDate(fromInput(dateStr)||dateStr);
+    if(!confirm(`${customer}\n納品日 ${dateLabel} を「発行なし」にしますか？\n未発行一覧から外れます。`))return;
+    if(!state.unissuedNone)state.unissuedNone={};
+    state.unissuedNone[unissuedNoneKey(customer,dateStr)]=true;
+    pruneUnissuedNone();
+    save("pv_unissued_none",state.unissuedNone);
+    if(window._fsSave)window._fsSave("pv_unissued_none",state.unissuedNone).catch(e=>console.warn("unissuedNone save",e));
+    showToast("発行なしにしました");
+    render();
+  }catch(e){
+    console.error("markUnissuedNone",e);
+    alert("発行なしの処理でエラー："+(e.message||e));
+  }
 }
+window.markUnissuedNone=markUnissuedNone;
 
 function selectCustomerFromSidebar(customerName,dateStr){
   state.issue.freeCustomer=false;
