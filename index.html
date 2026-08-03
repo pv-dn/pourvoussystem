@@ -2498,15 +2498,19 @@ async function renderUserTabContent(){
   const profiles=await window._getUserProfiles()||[];
   const logs=await window._getLoginLogs(30)||[];
   
-  const profileRows=profiles.map(p=>`
-    <tr>
-      <td style="text-align:center"><span style="background:#e8d5b7;padding:2px 10px;border-radius:4px;font-weight:700;font-size:13px">${p.shortId||"—"}</span></td>
-      <td style="font-size:13px">${p.displayName||""}</td>
+  const profileRows=profiles.map(p=>{
+    const uid=String(p.uid||"").replace(/"/g,"&quot;");
+    const sid=String(p.shortId||"").replace(/&/g,"&amp;").replace(/"/g,"&quot;").replace(/</g,"&lt;");
+    const dn=String(p.displayName||"").replace(/&/g,"&amp;").replace(/"/g,"&quot;").replace(/</g,"&lt;");
+    return`<tr>
+      <td style="text-align:center"><span style="background:#e8d5b7;padding:2px 10px;border-radius:4px;font-weight:700;font-size:13px">${sid||"—"}</span></td>
+      <td style="font-size:13px">${dn}</td>
       <td style="white-space:nowrap">
-        <button class="btn-edit" onclick="resetUserPasswordPrompt('${p.uid}',${JSON.stringify(p.shortId||"")},${JSON.stringify(p.displayName||"")})">パス再設定</button>
-        <button class="btn-danger" onclick="deleteUserProfile('${p.uid}')">削除</button>
+        <button type="button" class="btn-edit" data-uid="${uid}" data-short="${sid}" data-name="${dn}" onclick="resetUserPasswordPrompt(this.dataset.uid,this.dataset.short,this.dataset.name)">パス再設定</button>
+        <button type="button" class="btn-danger" data-uid="${uid}" onclick="deleteUserProfile(this.dataset.uid)">削除</button>
       </td>
-    </tr>`).join("");
+    </tr>`;
+  }).join("");
 
   const logRows=logs.map(l=>`
     <tr>
@@ -2580,21 +2584,24 @@ async function deleteUserProfile(uid){
 }
 
 async function resetUserPasswordPrompt(uid,shortId,displayName){
-  if(!shortId){alert("略称IDがありません");return;}
-  const pass=prompt(`${displayName||shortId}（${shortId}）の新しいパスワードを入力してください`);
-  if(pass===null)return;
-  if(!pass||pass.length<6){alert("パスワードは6文字以上にしてください");return;}
-  const pass2=prompt("確認のため、もう一度入力してください");
-  if(pass2===null)return;
-  if(pass!==pass2){alert("パスワードが一致しません");return;}
   try{
+    if(!shortId){alert("略称IDがありません");return;}
+    const pass=prompt(`${displayName||shortId}（${shortId}）の新しいパスワードを入力してください`);
+    if(pass===null)return;
+    if(!pass||pass.length<6){alert("パスワードは6文字以上にしてください");return;}
+    const pass2=prompt("確認のため、もう一度入力してください");
+    if(pass2===null)return;
+    if(pass!==pass2){alert("パスワードが一致しません");return;}
     await window._resetUserPassword(shortId,displayName,pass,uid);
     alert("パスワードを再設定しました。\n新しいパスワードだけでログインできます。");
     renderUserTabContent();
   }catch(e){
+    console.error("resetUserPasswordPrompt",e);
     alert("再設定エラー："+(e.message||e.code||e));
   }
 }
+window.resetUserPasswordPrompt=resetUserPasswordPrompt;
+window.deleteUserProfile=deleteUserProfile;
 
 async function changeAdminPass(){
   const p1=document.getElementById("new-admin-pass").value;
