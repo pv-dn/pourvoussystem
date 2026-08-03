@@ -273,13 +273,13 @@ td{padding:9px 8px;border-bottom:.5px solid #f0ede8;font-size:13px;overflow:hidd
   <div class="login-box">
     <div class="login-logo">株式会社プゥル・ヴー</div>
     <div class="login-sub">納品書発行システム</div>
-    <div id="login-email-wrap" style="display:none" class="login-field">
-      <label>メールアドレス <span style="font-size:11px;color:#e57373">（初回のみ）</span></label>
-      <input type="email" id="login-email" placeholder="example@mail.com" onkeydown="if(event.key==='Enter')doLogin()">
+    <div class="login-field">
+      <label>略称ID</label>
+      <input type="text" id="login-shortid" placeholder="例：EY" autocomplete="username" style="text-transform:uppercase" onkeydown="if(event.key==='Enter')document.getElementById('login-password').focus()">
     </div>
     <div class="login-field">
       <label>パスワード</label>
-      <input type="password" id="login-password" placeholder="パスワードを入力" onkeydown="if(event.key==='Enter')doLogin()">
+      <input type="password" id="login-password" placeholder="パスワードを入力" autocomplete="current-password" onkeydown="if(event.key==='Enter')doLogin()">
     </div>
     <button class="login-btn" onclick="doLogin()">ログイン</button>
     <div class="login-error" id="login-error"></div>
@@ -2358,10 +2358,13 @@ async function bootApp(){
 window.bootApp=bootApp;
 
 async function doLogin(){
+  const shortIdEl=document.getElementById("login-shortid");
+  const shortId=(shortIdEl?.value||"").trim().toUpperCase();
   const password=document.getElementById("login-password").value;
   const errEl=document.getElementById("login-error");
   errEl.textContent="";
   errEl.style.color="#c62828";
+  if(!shortId){errEl.textContent="略称IDを入力してください（例：EY）";return;}
   if(!password){errEl.textContent="パスワードを入力してください";return;}
   window._manualLoginInProgress=true;
   try{
@@ -2375,33 +2378,37 @@ async function doLogin(){
       errEl.textContent="ユーザー情報を取得できません。しばらく待ってから再試行してください。";
       return;
     }
-    let loggedIn=false;
-    let rateLimited=false;
-    for(const prof of profiles){
-      if(rateLimited)break;
-      const email=prof.shortId
-        ? prof.shortId.toLowerCase()+"@pv.local"
-        : (prof.email||"");
-      if(!email) continue;
-      try{
-        const cred=await window._signIn(email,password);
-        const user=cred.user;
-        setUserProfile(prof,email);
-        if(prof.shortId!=="AD") await window._saveLoginLog(user.uid,email,window._userDisplayName);
-        loggedIn=true;
-        break;
-      }catch(e){
-        if(e.code==="auth/too-many-requests"){
-          errEl.textContent="ログイン試行が多すぎます。しばらく待ってから再試行してください。";
-          rateLimited=true;
-          break;
-        }
-        // パスワード不一致は次のユーザーを試す（ログには残さない）
-        continue;
+    const prof=profiles.find(p=>(p.shortId||"").toUpperCase()===shortId);
+    if(!prof){
+      errEl.textContent=`略称ID「${shortId}」のユーザーが見つかりません`;
+      return;
+    }
+    const email=prof.shortId
+      ? prof.shortId.toLowerCase()+"@pv.local"
+      : (prof.email||"");
+    if(!email){
+      errEl.textContent="このユーザーのログイン情報が不完全です";
+      return;
+    }
+    try{
+      const cred=await window._signIn(email,password);
+      const user=cred.user;
+      setUserProfile(prof,email);
+      try{localStorage.setItem("pv_last_shortid",shortId);}catch{}
+      if(prof.shortId!=="AD") await window._saveLoginLog(user.uid,email,window._userDisplayName);
+      await bootApp();
+    }catch(e){
+      console.error("Login auth error:",e.code,e.message);
+      if(e.code==="auth/too-many-requests"){
+        errEl.textContent="ログイン試行が多すぎます。しばらく待ってから再試行してください。";
+      }else if(e.code==="auth/user-not-found"||e.code==="auth/invalid-email"){
+        errEl.textContent="この略称IDの認証アカウントが見つかりません。管理者に連絡してください。";
+      }else if(e.code==="auth/wrong-password"||e.code==="auth/invalid-credential"||e.code==="auth/invalid-login-credentials"){
+        errEl.textContent="パスワードが正しくありません";
+      }else{
+        errEl.textContent="エラー："+(e.code||e.message||"不明なエラー");
       }
     }
-    if(!loggedIn&&!rateLimited){errEl.textContent="パスワードが正しくありません";}
-    else if(loggedIn)await bootApp();
   }catch(e){
     console.error("Login error:",e.code,e.message);
     errEl.textContent="エラー："+(e.code||e.message||"不明なエラー");
@@ -2409,6 +2416,14 @@ async function doLogin(){
     window._manualLoginInProgress=false;
   }
 }
+// 前回使った略称IDを復元
+(function(){
+  try{
+    const last=localStorage.getItem("pv_last_shortid");
+    const el=document.getElementById("login-shortid");
+    if(last&&el)el.value=last;
+  }catch{}
+})();
 async function doLogout(){
   if(!confirm("ログアウトしますか？"))return;
   await window._signOut();
