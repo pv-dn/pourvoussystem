@@ -7,7 +7,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
 <script type="module">
-import { initializeApp } from "https://www.gstatic.com/firebasejs/12.13.0/firebase-app.js";
+import { initializeApp, deleteApp } from "https://www.gstatic.com/firebasejs/12.13.0/firebase-app.js";
 import { getFirestore, doc, setDoc, getDoc, onSnapshot, collection, addDoc, query, orderBy, limit, getDocs } from "https://www.gstatic.com/firebasejs/12.13.0/firebase-firestore.js";
 import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged, createUserWithEmailAndPassword, updatePassword } from "https://www.gstatic.com/firebasejs/12.13.0/firebase-auth.js";
 
@@ -38,6 +38,31 @@ window._createUser = async function(email, password) {
 };
 window._updateUserPassword = async function(user, newPassword) {
   return await updatePassword(user, newPassword);
+};
+// 管理者用：別セッションでユーザーを再作成してパスワードを付け直す
+window._resetUserPassword = async function(shortId, displayName, newPassword, oldUid) {
+  const secondary = initializeApp(firebaseConfig, "pv-reset-" + Date.now());
+  try {
+    const secondaryAuth = getAuth(secondary);
+    const base = String(shortId || "user").toLowerCase().replace(/[^a-z0-9]/g, "") || "user";
+    // 既存 ey@pv.local が残っていても再設定できるよう、一意なメールで新規作成する
+    const email = base + "_r" + Date.now().toString(36) + "@pv.local";
+    const cred = await createUserWithEmailAndPassword(secondaryAuth, email, newPassword);
+    const newUid = cred.user.uid;
+    await setDoc(doc(db, "userProfiles", newUid), {
+      email, shortId, displayName: displayName || ""
+    }, { merge: true });
+    if (oldUid && oldUid !== newUid) {
+      try {
+        const { deleteDoc } = await import("https://www.gstatic.com/firebasejs/12.13.0/firebase-firestore.js");
+        await deleteDoc(doc(db, "userProfiles", oldUid));
+      } catch (_) {}
+    }
+    await signOut(secondaryAuth);
+    return { newUid, email };
+  } finally {
+    try { await deleteApp(secondary); } catch (_) {}
+  }
 };
 
 // ログイン履歴を保存
@@ -273,10 +298,6 @@ td{padding:9px 8px;border-bottom:.5px solid #f0ede8;font-size:13px;overflow:hidd
   <div class="login-box">
     <div class="login-logo">株式会社プゥル・ヴー</div>
     <div class="login-sub">納品書発行システム</div>
-    <div class="login-field">
-      <label>略称ID</label>
-      <input type="text" id="login-shortid" placeholder="例：EY" autocomplete="username" style="text-transform:uppercase" onkeydown="if(event.key==='Enter')document.getElementById('login-password').focus()">
-    </div>
     <div class="login-field">
       <label>パスワード</label>
       <input type="password" id="login-password" placeholder="パスワードを入力" autocomplete="current-password" onkeydown="if(event.key==='Enter')doLogin()">
@@ -2358,13 +2379,10 @@ async function bootApp(){
 window.bootApp=bootApp;
 
 async function doLogin(){
-  const shortIdEl=document.getElementById("login-shortid");
-  const shortId=(shortIdEl?.value||"").trim().toUpperCase();
   const password=document.getElementById("login-password").value;
   const errEl=document.getElementById("login-error");
   errEl.textContent="";
   errEl.style.color="#c62828";
-  if(!shortId){errEl.textContent="略称IDを入力してください（例：EY）";return;}
   if(!password){errEl.textContent="パスワードを入力してください";return;}
   window._manualLoginInProgress=true;
   try{
@@ -2378,37 +2396,45 @@ async function doLogin(){
       errEl.textContent="ユーザー情報を取得できません。しばらく待ってから再試行してください。";
       return;
     }
-    const prof=profiles.find(p=>(p.shortId||"").toUpperCase()===shortId);
-    if(!prof){
-      errEl.textContent=`略称ID「${shortId}」のユーザーが見つかりません`;
-      return;
-    }
-    const email=prof.shortId
-      ? prof.shortId.toLowerCase()+"@pv.local"
-      : (prof.email||"");
-    if(!email){
-      errEl.textContent="このユーザーのログイン情報が不完全です";
-      return;
-    }
+    // 前回成功した略称IDを先に試し、不要な失敗回数を減らす
+    let ordered=[...profiles];
     try{
-      const cred=await window._signIn(email,password);
-      const user=cred.user;
-      setUserProfile(prof,email);
-      try{localStorage.setItem("pv_last_shortid",shortId);}catch{}
-      if(prof.shortId!=="AD") await window._saveLoginLog(user.uid,email,window._userDisplayName);
-      await bootApp();
-    }catch(e){
-      console.error("Login auth error:",e.code,e.message);
-      if(e.code==="auth/too-many-requests"){
-        errEl.textContent="ログイン試行が多すぎます。しばらく待ってから再試行してください。";
-      }else if(e.code==="auth/user-not-found"||e.code==="auth/invalid-email"){
-        errEl.textContent="この略称IDの認証アカウントが見つかりません。管理者に連絡してください。";
-      }else if(e.code==="auth/wrong-password"||e.code==="auth/invalid-credential"||e.code==="auth/invalid-login-credentials"){
-        errEl.textContent="パスワードが正しくありません";
-      }else{
-        errEl.textContent="エラー："+(e.code||e.message||"不明なエラー");
+      const last=(localStorage.getItem("pv_last_shortid")||"").toUpperCase();
+      if(last){
+        ordered.sort((a,b)=>{
+          const as=(a.shortId||"").toUpperCase()===last?0:1;
+          const bs=(b.shortId||"").toUpperCase()===last?0:1;
+          return as-bs;
+        });
+      }
+    }catch{}
+    let loggedIn=false;
+    let rateLimited=false;
+    for(const prof of ordered){
+      if(rateLimited)break;
+      const email=prof.email||(prof.shortId
+        ? prof.shortId.toLowerCase()+"@pv.local"
+        : "");
+      if(!email) continue;
+      try{
+        const cred=await window._signIn(email,password);
+        const user=cred.user;
+        setUserProfile(prof,email);
+        try{if(prof.shortId)localStorage.setItem("pv_last_shortid",String(prof.shortId).toUpperCase());}catch{}
+        if(prof.shortId!=="AD") await window._saveLoginLog(user.uid,email,window._userDisplayName);
+        loggedIn=true;
+        break;
+      }catch(e){
+        if(e.code==="auth/too-many-requests"){
+          errEl.textContent="ログイン試行が多すぎます。しばらく待ってから再試行してください。";
+          rateLimited=true;
+          break;
+        }
+        continue;
       }
     }
+    if(!loggedIn&&!rateLimited){errEl.textContent="パスワードが正しくありません";}
+    else if(loggedIn)await bootApp();
   }catch(e){
     console.error("Login error:",e.code,e.message);
     errEl.textContent="エラー："+(e.code||e.message||"不明なエラー");
@@ -2416,14 +2442,6 @@ async function doLogin(){
     window._manualLoginInProgress=false;
   }
 }
-// 前回使った略称IDを復元
-(function(){
-  try{
-    const last=localStorage.getItem("pv_last_shortid");
-    const el=document.getElementById("login-shortid");
-    if(last&&el)el.value=last;
-  }catch{}
-})();
 async function doLogout(){
   if(!confirm("ログアウトしますか？"))return;
   await window._signOut();
@@ -2484,7 +2502,10 @@ async function renderUserTabContent(){
     <tr>
       <td style="text-align:center"><span style="background:#e8d5b7;padding:2px 10px;border-radius:4px;font-weight:700;font-size:13px">${p.shortId||"—"}</span></td>
       <td style="font-size:13px">${p.displayName||""}</td>
-      <td><button class="btn-danger" onclick="deleteUserProfile('${p.uid}')">削除</button></td>
+      <td style="white-space:nowrap">
+        <button class="btn-edit" onclick="resetUserPasswordPrompt('${p.uid}',${JSON.stringify(p.shortId||"")},${JSON.stringify(p.displayName||"")})">パス再設定</button>
+        <button class="btn-danger" onclick="deleteUserProfile('${p.uid}')">削除</button>
+      </td>
     </tr>`).join("");
 
   const logRows=logs.map(l=>`
@@ -2497,8 +2518,9 @@ async function renderUserTabContent(){
   <div class="card">
     <h3>ユーザー一覧</h3>
     <table style="margin-bottom:16px"><thead><tr>
-      <th style="width:80px;text-align:center">略称ID</th><th>表示名</th><th style="width:60px">操作</th>
+      <th style="width:80px;text-align:center">略称ID</th><th>表示名</th><th style="width:200px">操作</th>
     </tr></thead><tbody>${profileRows||'<tr><td colspan="4" style="text-align:center;color:#aaa;padding:20px">ユーザーなし</td></tr>'}</tbody></table>
+    <div style="font-size:12px;color:#888;margin-bottom:12px;line-height:1.5">「パス再設定」で新しいパスワードを付け直せます（adminでログインした状態で実行）。</div>
     <div style="border-top:1px solid #f0ede8;padding-top:16px">
       <div style="font-size:14px;font-weight:600;margin-bottom:12px">新規ユーザーを追加</div>
       <div style="display:grid;grid-template-columns:2fr 1fr 1fr 1fr auto;gap:8px;align-items:end">
@@ -2555,6 +2577,23 @@ async function deleteUserProfile(uid){
     await deleteDoc(fsDoc(window._db,"userProfiles",uid));
     renderUserTabContent();
   }catch(e){alert("削除エラー："+e.message);}
+}
+
+async function resetUserPasswordPrompt(uid,shortId,displayName){
+  if(!shortId){alert("略称IDがありません");return;}
+  const pass=prompt(`${displayName||shortId}（${shortId}）の新しいパスワードを入力してください`);
+  if(pass===null)return;
+  if(!pass||pass.length<6){alert("パスワードは6文字以上にしてください");return;}
+  const pass2=prompt("確認のため、もう一度入力してください");
+  if(pass2===null)return;
+  if(pass!==pass2){alert("パスワードが一致しません");return;}
+  try{
+    await window._resetUserPassword(shortId,displayName,pass,uid);
+    alert("パスワードを再設定しました。\n新しいパスワードだけでログインできます。");
+    renderUserTabContent();
+  }catch(e){
+    alert("再設定エラー："+(e.message||e.code||e));
+  }
 }
 
 async function changeAdminPass(){
@@ -2618,9 +2657,9 @@ async function checkDataTabPass(){
   let rateLimited=false;
   for(const prof of profiles){
     if(rateLimited)break;
-    const email=prof.shortId
+    const email=prof.email||(prof.shortId
       ? prof.shortId.toLowerCase()+"@pv.local"
-      : (prof.email||"");
+      : "");
     if(!email) continue;
     try{
       await window._signIn(email,pass);
