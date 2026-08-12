@@ -2715,22 +2715,37 @@ window._saveDataEditLog = async function(category, detail){
 };
 
 function renderDataEditLog(){
-  // 非同期で読み込み
   setTimeout(async()=>{
+    const el=document.getElementById("data-edit-log-body");
+    if(!el)return;
     try{
-      const {getDocs, collection, query, orderBy, limit} = await import("https://www.gstatic.com/firebasejs/12.13.0/firebase-firestore.js");
-      const q = query(collection(window._db,"dataEditLogs"), orderBy("editedAt","desc"), limit(100));
-      const snap = await getDocs(q);
-      const logs = snap.docs.map(d=>d.data());
-      const rows = logs.map(l=>`<tr>
+      if(!window._db){
+        el.innerHTML='<tr><td colspan="4" style="text-align:center;color:#c62828;padding:20px">データベース未接続です。再ログインしてください。</td></tr>';
+        return;
+      }
+      const {getDocs, collection, query, orderBy, limit}=await import("https://www.gstatic.com/firebasejs/12.13.0/firebase-firestore.js");
+      let logs=[];
+      try{
+        const q=query(collection(window._db,"dataEditLogs"), orderBy("editedAt","desc"), limit(100));
+        const snap=await getDocs(q);
+        logs=snap.docs.map(d=>d.data());
+      }catch(e1){
+        // orderBy用インデックス未作成など → 全件取得して並べ替え
+        console.warn("dataEditLogs orderBy failed, fallback",e1);
+        const snap=await getDocs(collection(window._db,"dataEditLogs"));
+        logs=snap.docs.map(d=>d.data()).sort((a,b)=>(b.editedAt||"").localeCompare(a.editedAt||"")).slice(0,100);
+      }
+      const rows=logs.map(l=>`<tr>
         <td style="font-size:12px">${l.editedAt?new Date(l.editedAt).toLocaleString("ja-JP"):""}</td>
         <td style="text-align:center"><span style="background:#e8d5b7;padding:1px 8px;border-radius:4px;font-size:11px;font-weight:700">${l.shortId||"—"}</span></td>
         <td style="font-size:13px">${l.category||""}</td>
         <td style="font-size:12px;color:#666">${l.detail||""}</td>
       </tr>`).join("");
-      const el = document.getElementById("data-edit-log-body");
-      if(el) el.innerHTML = rows || '<tr><td colspan="4" style="text-align:center;color:#aaa;padding:20px">記録なし</td></tr>';
-    }catch(e){console.warn(e);}
+      el.innerHTML=rows||'<tr><td colspan="4" style="text-align:center;color:#aaa;padding:20px">記録なし</td></tr>';
+    }catch(e){
+      console.error("dataEditLogs load error",e);
+      el.innerHTML=`<tr><td colspan="4" style="text-align:center;color:#c62828;padding:20px">読み込み失敗：${(e.code||e.message||"不明なエラー")}<br><span style="font-size:12px;color:#888">Firestoreの権限またはインデックスを確認してください</span></td></tr>`;
+    }
   },0);
   return `<div class="card">
     <h3>データ修正記録（直近100件）</h3>
