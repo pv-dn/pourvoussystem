@@ -790,6 +790,15 @@ function selectCustomer(name){
   });
   state.issue.useCustom=cp.length===0;
   render();
+  focusFirstQtyInput();
+}
+function focusFirstQtyInput(){
+  setTimeout(()=>{
+    const el=document.querySelector("[data-qty-idx='0']");
+    if(el){el.focus();el.select();return;}
+    const custom=document.querySelector("#main input[placeholder='品名']");
+    if(custom)custom.focus();
+  },50);
 }
 function setFreeCustomer(val){
   // 入力中にrender()するとフォーカスが消えるため、状態更新のみ
@@ -2300,6 +2309,7 @@ function selectCustomerFromSidebar(customerName,dateStr){
   state.issue.useCustom=cp.length===0;
   state.tab=0;
   render();
+  focusFirstQtyInput();
 }
 // ===== /未発行アラート =====
 
