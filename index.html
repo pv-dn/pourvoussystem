@@ -119,6 +119,7 @@ const FS_KEYS = {
   pv_cycles: "cycles",
   pv_skip_holidays: "skipHolidays",
   pv_unissued_none: "unissuedNone",
+  pv_data_edit_logs: "dataEditLogs",
   pv_adminpass: "adminpass",
   pv_githubPAT: "githubPAT"
 };
@@ -142,7 +143,7 @@ window._fsLoad = async function(k) {
 };
 
 // リアルタイム同期（ログイン後に開始）
-const watchKeys = ["customers","products","prices","history","invoiceCounters","closingDays","minG","cycles","skipHolidays","unissuedNone"];
+const watchKeys = ["customers","products","prices","history","invoiceCounters","closingDays","minG","cycles","skipHolidays","unissuedNone","dataEditLogs"];
 window._startRealtimeSync = function() {
 if(window._realtimeSyncStarted)return;
 window._realtimeSyncStarted=true;
@@ -168,6 +169,7 @@ watchKeys.forEach(fsKey => {
         else if (localKey === "pv_cycles") mergeCycles(val);
         else if (localKey === "pv_skip_holidays") st.skipHolidays = val;
         else if (localKey === "pv_unissued_none") st.unissuedNone = val;
+        else if (localKey === "pv_data_edit_logs") st.dataEditLogs = Array.isArray(val)?val:[];
       }
       if (st && !st.showPrint && !st.editingHistory && !st.customerDetail && typeof render === "function") {
         render();
@@ -355,6 +357,7 @@ let state={
   closingDays:load("pv_closing_days",{}),
   skipHolidays:load("pv_skip_holidays",{}),
   unissuedNone:load("pv_unissued_none",{}),
+  dataEditLogs:load("pv_data_edit_logs",[]),
   minG:load("pv_min",INIT_MIN),
   issue:{customer:"",freeCustomer:false,deliveryDate:"",deliverySite:"",items:[],customItems:[{name:"",qty:"",price:""}],useCustom:false,memo:""},
   histSearch:"",
@@ -2699,11 +2702,11 @@ async function checkDataTabPass(){
   }
 }
 
-// データ修正記録を保存
+// データ修正記録を保存（pvdata経由・既存のFirestore権限で動作）
 window._saveDataEditLog = async function(category, detail){
   try{
-    const {addDoc, collection} = await import("https://www.gstatic.com/firebasejs/12.13.0/firebase-firestore.js");
-    await addDoc(collection(window._db, "dataEditLogs"), {
+    if(!state.dataEditLogs)state.dataEditLogs=[];
+    state.dataEditLogs.unshift({
       uid: window._currentUser?.uid||"",
       displayName: window._userDisplayName||"",
       shortId: window._userShortId||"",
@@ -2711,48 +2714,25 @@ window._saveDataEditLog = async function(category, detail){
       detail,
       editedAt: new Date().toISOString()
     });
+    if(state.dataEditLogs.length>100)state.dataEditLogs=state.dataEditLogs.slice(0,100);
+    save("pv_data_edit_logs",state.dataEditLogs);
   }catch(e){console.warn("dataEditLog error",e);}
 };
 
 function renderDataEditLog(){
-  setTimeout(async()=>{
-    const el=document.getElementById("data-edit-log-body");
-    if(!el)return;
-    try{
-      if(!window._db){
-        el.innerHTML='<tr><td colspan="4" style="text-align:center;color:#c62828;padding:20px">データベース未接続です。再ログインしてください。</td></tr>';
-        return;
-      }
-      const {getDocs, collection, query, orderBy, limit}=await import("https://www.gstatic.com/firebasejs/12.13.0/firebase-firestore.js");
-      let logs=[];
-      try{
-        const q=query(collection(window._db,"dataEditLogs"), orderBy("editedAt","desc"), limit(100));
-        const snap=await getDocs(q);
-        logs=snap.docs.map(d=>d.data());
-      }catch(e1){
-        // orderBy用インデックス未作成など → 全件取得して並べ替え
-        console.warn("dataEditLogs orderBy failed, fallback",e1);
-        const snap=await getDocs(collection(window._db,"dataEditLogs"));
-        logs=snap.docs.map(d=>d.data()).sort((a,b)=>(b.editedAt||"").localeCompare(a.editedAt||"")).slice(0,100);
-      }
-      const rows=logs.map(l=>`<tr>
-        <td style="font-size:12px">${l.editedAt?new Date(l.editedAt).toLocaleString("ja-JP"):""}</td>
-        <td style="text-align:center"><span style="background:#e8d5b7;padding:1px 8px;border-radius:4px;font-size:11px;font-weight:700">${l.shortId||"—"}</span></td>
-        <td style="font-size:13px">${l.category||""}</td>
-        <td style="font-size:12px;color:#666">${l.detail||""}</td>
-      </tr>`).join("");
-      el.innerHTML=rows||'<tr><td colspan="4" style="text-align:center;color:#aaa;padding:20px">記録なし</td></tr>';
-    }catch(e){
-      console.error("dataEditLogs load error",e);
-      el.innerHTML=`<tr><td colspan="4" style="text-align:center;color:#c62828;padding:20px">読み込み失敗：${(e.code||e.message||"不明なエラー")}<br><span style="font-size:12px;color:#888">Firestoreの権限またはインデックスを確認してください</span></td></tr>`;
-    }
-  },0);
+  const logs=Array.isArray(state.dataEditLogs)?state.dataEditLogs:[];
+  const rows=logs.map(l=>`<tr>
+    <td style="font-size:12px">${l.editedAt?new Date(l.editedAt).toLocaleString("ja-JP"):""}</td>
+    <td style="text-align:center"><span style="background:#e8d5b7;padding:1px 8px;border-radius:4px;font-size:11px;font-weight:700">${l.shortId||"—"}</span></td>
+    <td style="font-size:13px">${l.category||""}</td>
+    <td style="font-size:12px;color:#666">${(l.detail||"").replace(/</g,"&lt;")}</td>
+  </tr>`).join("");
   return `<div class="card">
     <h3>データ修正記録（直近100件）</h3>
     <table><thead><tr>
       <th>日時</th><th style="text-align:center;width:70px">略称ID</th><th style="width:100px">項目</th><th>内容</th>
     </tr></thead>
-    <tbody id="data-edit-log-body"><tr><td colspan="4" style="text-align:center;color:#aaa;padding:20px">読み込み中...</td></tr></tbody></table>
+    <tbody>${rows||'<tr><td colspan="4" style="text-align:center;color:#aaa;padding:20px">記録なし</td></tr>'}</tbody></table>
   </div>`;
 }
 
@@ -3117,7 +3097,7 @@ function drawStatsCharts(){
 
 window._appStart = async function() {
   window._state=state;
-  const keys=[["pv_customers","customers"],["pv_products","products"],["pv_prices","prices"],["pv_history","history"],["pv_invoice_counters","invoiceCounters"],["pv_closing_days","closingDays"],["pv_skip_holidays","skipHolidays"],["pv_unissued_none","unissuedNone"],["pv_min","minG"]];
+  const keys=[["pv_customers","customers"],["pv_products","products"],["pv_prices","prices"],["pv_history","history"],["pv_invoice_counters","invoiceCounters"],["pv_closing_days","closingDays"],["pv_skip_holidays","skipHolidays"],["pv_unissued_none","unissuedNone"],["pv_data_edit_logs","dataEditLogs"],["pv_min","minG"]];
   keys.forEach(([k,prop])=>{const v=localStorage.getItem(k);if(v)try{state[prop]=JSON.parse(v);}catch{}});
   try{
     const savedCycles=localStorage.getItem("pv_cycles");
