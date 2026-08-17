@@ -359,7 +359,7 @@ let state={
   unissuedNone:load("pv_unissued_none",{}),
   dataEditLogs:load("pv_data_edit_logs",[]),
   minG:load("pv_min",INIT_MIN),
-  issue:{customer:"",freeCustomer:false,deliveryDate:"",deliverySite:"",items:[],customItems:[{name:"",qty:"",price:""}],useCustom:false,memo:""},
+  issue:{customer:"",freeCustomer:false,deliveryDate:"",deliverySite:"",items:[],customItems:[{name:"",qty:"",price:""}],useCustom:false,customPanelOpen:false,memo:""},
   histSearch:"",
   custSearch:"",
   editingCustomer:null,
@@ -704,10 +704,12 @@ function renderIssueTab(){
     });
     itemsHtml+=`</tbody></table>`;
   }
-  // 自由入力行
-  if(iss.customItems&&iss.customItems.some(it=>it.name||it.qty||it.price)){
+  // 自由入力行（空行のみのとき非表示だったバグを修正）
+  const showCustomPanel=iss.useCustom||iss.customPanelOpen||(iss.customItems&&iss.customItems.some(it=>it.name||it.qty||it.price));
+  if(showCustomPanel&&iss.customItems&&iss.customItems.length){
+    const escAttr=v=>String(v??"").replace(/&/g,"&amp;").replace(/"/g,"&quot;").replace(/</g,"&lt;");
     itemsHtml+=`<div style="margin-bottom:8px;padding:8px;background:#f0f7ff;border-radius:8px;border:1px solid #c8e0ff"><div style="font-size:12px;color:#1565c0;margin-bottom:6px">📝 自由入力行</div>`;
-    itemsHtml+=iss.customItems.map((item,i)=>item.name||item.qty||item.price?`<div style="display:grid;grid-template-columns:2fr 1fr 1fr auto;gap:8px;margin-bottom:6px"><input placeholder="品名" value="${item.name}" onchange="setCustomItem(${i},'name',this.value)" style="padding:9px 12px;border:1px solid #c8e0ff;border-radius:8px;font-size:14px"><input type="number" placeholder="数量" value="${item.qty}" onchange="setCustomItem(${i},'qty',this.value)" style="padding:9px 12px;border:1px solid #c8e0ff;border-radius:8px;font-size:14px;text-align:center"><input type="number" placeholder="単価" value="${item.price}" onchange="setCustomItem(${i},'price',this.value)" style="padding:9px 12px;border:1px solid #c8e0ff;border-radius:8px;font-size:14px;text-align:right"><button onclick="removeCustomItem(${i})" style="background:#fee;border:1px solid #fcc;border-radius:6px;cursor:pointer;padding:0 10px;color:#c62828">✕</button></div>`:"").join("");
+    itemsHtml+=iss.customItems.map((item,i)=>`<div style="display:grid;grid-template-columns:2fr 1fr 1fr auto;gap:8px;margin-bottom:6px"><input placeholder="品名" value="${escAttr(item.name)}" oninput="setCustomItem(${i},'name',this.value)" style="padding:9px 12px;border:1px solid #c8e0ff;border-radius:8px;font-size:14px"><input type="number" placeholder="数量" value="${escAttr(item.qty)}" oninput="setCustomItem(${i},'qty',this.value,true)" style="padding:9px 12px;border:1px solid #c8e0ff;border-radius:8px;font-size:14px;text-align:center"><input type="number" placeholder="単価" value="${escAttr(item.price)}" oninput="setCustomItem(${i},'price',this.value,true)" style="padding:9px 12px;border:1px solid #c8e0ff;border-radius:8px;font-size:14px;text-align:right"><button onclick="removeCustomItem(${i})" style="background:#fee;border:1px solid #fcc;border-radius:6px;cursor:pointer;padding:0 10px;color:#c62828">✕</button></div>`).join("");
     itemsHtml+=`</div>`;
   }
   // 商品ピッカー
@@ -771,6 +773,7 @@ function selectCustomer(name){
     state.issue.customer="";
     state.issue.items=[];
     state.issue.useCustom=true;
+    state.issue.customPanelOpen=true;
     const today=new Date();today.setDate(today.getDate()+1);
     state.issue.deliveryDate=toInput(today);
     render();
@@ -792,6 +795,7 @@ function selectCustomer(name){
     return item;
   });
   state.issue.useCustom=cp.length===0;
+  state.issue.customPanelOpen=cp.length===0;
   render();
   focusFirstQtyInput();
 }
@@ -828,7 +832,11 @@ function qtyKeyDown(e,i){
     else{const btn=document.querySelector(".issue-btn");if(btn)btn.focus();}
   }
 }
-function setCustomItem(i,k,v){state.issue.customItems[i][k]=v;render();}
+function setCustomItem(i,k,v,refreshTotal){
+  if(!state.issue.customItems[i])return;
+  state.issue.customItems[i][k]=v;
+  if(refreshTotal)render();
+}
 
 function showProductPicker(){
   const picker=document.getElementById("product-picker");
@@ -848,6 +856,7 @@ function addFromPicker(){
     return pr?resolveUnitPrice(pr,qty):0;
   })();
   if(!state.issue.customItems)state.issue.customItems=[{name:"",qty:"",price:""}];
+  state.issue.customPanelOpen=true;
   // 空の行があれば使う、なければ追加
   const emptyIdx=state.issue.customItems.findIndex(it=>!it.name&&!it.qty&&!it.price);
   if(emptyIdx>=0){
@@ -863,8 +872,10 @@ function addFromPicker(){
 }
 
 function addCustomItem(){
-  if(!state.issue.customItems)state.issue.customItems=[{name:"",qty:"",price:""}];
-  else state.issue.customItems.push({name:"",qty:"",price:""});
+  if(!state.issue.customItems)state.issue.customItems=[];
+  state.issue.customPanelOpen=true;
+  const hasEmpty=state.issue.customItems.some(it=>!it.name&&!it.qty&&!it.price);
+  if(!hasEmpty)state.issue.customItems.push({name:"",qty:"",price:""});
   render();
   // 最後の自由入力行にフォーカス
   setTimeout(()=>{
@@ -929,6 +940,7 @@ async function issueInvoice(){
   // 数量をリセット（前回の入力が残らないように）
   state.issue.items=state.issue.items.map(i=>({...i,qty:""}));
   state.issue.customItems=[{name:"",qty:"",price:""}];
+  state.issue.customPanelOpen=false;
   state.printInvoice=inv;render();renderPrintModal(true);
 }
 
@@ -2310,6 +2322,7 @@ function selectCustomerFromSidebar(customerName,dateStr){
     return item;
   });
   state.issue.useCustom=cp.length===0;
+  state.issue.customPanelOpen=cp.length===0;
   state.tab=0;
   render();
   focusFirstQtyInput();
@@ -3108,7 +3121,7 @@ window._appStart = async function() {
   }catch{}
   try{applyShakoCustomerNameFix();}catch(e){console.warn("applyShakoCustomerNameFix",e);}
   try{await loadAdminPass();}catch(e){console.warn("loadAdminPass",e);}
-  if(!state.issue)state.issue={customer:"",freeCustomer:false,deliveryDate:"",deliverySite:"",items:[],customItems:[{name:"",qty:"",price:""}],useCustom:false,memo:""};
+  if(!state.issue)state.issue={customer:"",freeCustomer:false,deliveryDate:"",deliverySite:"",items:[],customItems:[{name:"",qty:"",price:""}],useCustom:false,customPanelOpen:false,memo:""};
   if(state.issue.deliverySite===undefined)state.issue.deliverySite="";
   render();
 };
