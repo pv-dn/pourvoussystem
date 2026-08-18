@@ -727,9 +727,12 @@ function renderIssueTab(){
   const freeInput=iss.freeCustomer?`<input type="text" id="free-customer-input" placeholder="客先名を入力してください" value="${String(iss.customer||"").replace(/&/g,"&amp;").replace(/"/g,"&quot;").replace(/</g,"&lt;")}" oninput="state.issue.customer=this.value" style="margin-top:6px;width:100%;padding:9px 12px;border:1px solid #1a73e8;border-radius:8px;font-size:14px">`:""
   const custDisplayName=iss.freeCustomer?"＋ リスト外の客先を入力":iss.customer
   return`<div style="position:sticky;top:0;z-index:100;background:#f8f7f4;padding:16px 0 8px">
-  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;gap:12px">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;gap:12px;flex-wrap:wrap">
     <h2 style="font-size:20px;font-weight:600;color:#1a1a2e;margin:0">納品書発行</h2>
-    <div style="font-size:12px;color:#999;text-align:right;line-height:1.4;white-space:nowrap">🖨️ 印刷設定：<span style="color:#c17a00;font-weight:600">B5・横向き・余白なし</span></div>
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:flex-end">
+      ${billingExportBtnHtml()}
+      <div style="font-size:12px;color:#999;text-align:right;line-height:1.4;white-space:nowrap">🖨️ 印刷設定：<span style="color:#c17a00;font-weight:600">B5・横向き・余白なし</span></div>
+    </div>
   </div>
   <div class="card" style="margin-bottom:0">
     <div class="grid3">
@@ -1000,9 +1003,13 @@ function renderHistoryTab(){
   </h2>
   <div id="invoice-log-section" style="display:none;margin-bottom:20px"></div>
   <div class="card" style="background:#f0f7ff;border:1px solid #90caf9">
-    <div style="font-size:15px;font-weight:600;color:#1a1a2e;margin-bottom:12px">📋 請求明細書をExcelで書き出す</div>
+    <div style="font-size:15px;font-weight:600;color:#1a1a2e;margin-bottom:8px">📋 請求明細書をExcelで書き出す</div>
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px">
+      ${billingExportBtnHtml()}
+    </div>
+    <div style="font-size:12px;color:#555;margin-bottom:12px;line-height:1.6">1日の終わりに押すと、未反映の伝票が請求月のシートにまとまってダウンロードされます。Excelの取り込み操作は不要です。押し忘れ分も含まれます。</div>
     <div style="display:flex;align-items:flex-end;gap:10px;flex-wrap:wrap;margin-bottom:10px">
-      <div><label class="lbl">今日（${todayStr}）発行分 ${todayCount}件</label>
+      <div><label class="lbl">今日（${todayStr}）発行分 ${todayCount}件（再出力）</label>
         <button onclick="exportTodayExcel()" style="display:block;background:#1565c0;color:#fff;border:none;padding:10px 22px;border-radius:8px;cursor:pointer;font-size:14px;font-weight:600;white-space:nowrap;margin-top:4px">📥 今日の分をExcel書き出し</button>
       </div>
     </div>
@@ -1632,6 +1639,37 @@ function dateInRange(dateVal, from, to) {
   return dd >= f && dd <= t;
 }
 
+function resolveClosingDay(customer){
+  const cd=state.closingDays[customer];
+  return (cd!==undefined&&cd!=="")?cd:0;
+}
+
+function getBillingMonthFromDate(dateVal, closingDay){
+  const d=new Date(dateVal);
+  if(isNaN(d))return null;
+  const y=d.getFullYear(), m=d.getMonth()+1, day=d.getDate();
+  if(!closingDay)return {year:y, month:m};
+  if(day>closingDay){
+    if(m===12)return {year:y+1, month:1};
+    return {year:y, month:m+1};
+  }
+  return {year:y, month:m};
+}
+
+function sheetCustomerName(sheetLabel){
+  return String(sheetLabel||"").replace(/\(\d+\)$/,"").replace(/_\d+年\d+月$/,"").trim();
+}
+
+function pendingBillingInvoices(){
+  return (state.history||[]).filter(h=>!h.void&&!h.billingExportedAt);
+}
+
+function billingExportBtnHtml(){
+  const n=pendingBillingInvoices().length;
+  const badge=n?`<span style="background:#fff;color:#854f0b;border-radius:10px;padding:1px 7px;margin-left:6px;font-size:11px;font-weight:700">未反映: ${n}件</span>`:"";
+  return `<button onclick="exportUnexportedExcel()" style="background:#854f0b;color:#fff;border:none;border-radius:8px;padding:8px 14px;cursor:pointer;font-size:13px;font-weight:600;white-space:nowrap">📄 未反映→請求明細Excel${badge}</button>`;
+}
+
 // 伝票リスト（最大14枚）を1シートに書き込む
 function fillSheet(wb, invoices, sheetLabel, yr, mo) {
   // テンプレートをコピー（スタイル・数式・結合を完全保持）
@@ -1653,12 +1691,12 @@ function fillSheet(wb, invoices, sheetLabel, yr, mo) {
 
   // ── ヘッダー部分 ──
   // A5: 客先名（A5:F5結合セル）
-  setCell("A5", "s", sheetLabel.replace(/\(\d+\)$/, "").trim());
+  setCell("A5", "s", sheetCustomerName(sheetLabel));
   // O3: 年（数字）, Q3: 月（数字）
   setCell("O3", "n", yr);
   setCell("Q3", "n", mo);
   // A9: 締め日表示（客先の締め日に合わせて自動表示）
-  const closingDay = state.closingDays[sheetLabel.replace(/_\d+年\d+月$/, "").replace(/\(\d+\)$/, "").trim()];
+  const closingDay = state.closingDays[sheetCustomerName(sheetLabel)];
   const shimeLbl = (closingDay === 0) ? "月末〆" : (closingDay ? closingDay + "日〆" : "25日〆");
   setCell("A9", "s", shimeLbl);
 
@@ -1719,13 +1757,58 @@ function fillSheet(wb, invoices, sheetLabel, yr, mo) {
 // 客先+伝票リストからワークブックにシートを追加（14枚超えで自動分割）
 function appendSheetsForCustomer(wb, customer, invoices, yr, mo) {
   const pageSize = 14;
-  const pages = Math.ceil(invoices.length / pageSize);
-  const baseName = customer.replace(/[\/\\:*?\[\]]/g, "").substring(0, pages > 1 ? 28 : 31);
+  const pages = Math.max(1, Math.ceil(invoices.length / pageSize));
+  const ym = `_${yr}年${mo}月`;
+  const extra = pages > 1 ? String(pages).length + 2 : 0;
+  const raw = String(customer || "").replace(/[\/\\:*?\[\]]/g, "");
+  const baseName = raw.substring(0, Math.max(1, 31 - ym.length - extra)) + ym;
   for (let p = 0; p < pages; p++) {
     const chunk = invoices.slice(p * pageSize, (p + 1) * pageSize);
     const label = pages > 1 ? baseName + `(${p+1})` : baseName;
     fillSheet(wb, chunk, label, yr, mo);
   }
+}
+
+// 未反映の伝票を請求月シートにまとめて書き出し（プリームスと同じ運用）
+async function exportUnexportedExcel(){
+  const toMark=pendingBillingInvoices();
+  if(!toMark.length){showToast("未反映の伝票がありません","error");return;}
+  const sheetMap=new Map();
+  toMark.forEach(h=>{
+    const cd=resolveClosingDay(h.customer);
+    const bm=getBillingMonthFromDate(h.deliveryDate,cd);
+    if(!bm)return;
+    const customer=h.customer||"（客先不明）";
+    const key=customer+"\0"+bm.year+"\0"+bm.month;
+    if(!sheetMap.has(key))sheetMap.set(key,{customer,year:bm.year,month:bm.month,closingDay:cd});
+  });
+  const wb=XLSX.utils.book_new();
+  let totalSheets=0;
+  sheetMap.forEach(({customer,year,month,closingDay})=>{
+    const {from,to}=getClosingPeriod(closingDay,year,month);
+    const invoices=state.history.filter(h=>!h.void&&h.customer===customer&&dateInRange(h.deliveryDate,from,to));
+    invoices.sort((a,b)=>new Date(a.deliveryDate)-new Date(b.deliveryDate));
+    if(!invoices.length)return;
+    appendSheetsForCustomer(wb,customer,invoices,year,month);
+    totalSheets++;
+  });
+  if(!totalSheets){showToast("該当期間に発行履歴がありません","error");return;}
+  const d=new Date();
+  const fname=`請求明細書_${d.getFullYear()}年${d.getMonth()+1}月${d.getDate()}日.xlsx`;
+  XLSX.writeFile(wb,fname);
+  const now=new Date().toISOString();
+  toMark.forEach(h=>{h.billingExportedAt=now;});
+  try{localStorage.setItem("pv_history",JSON.stringify(state.history));}catch{}
+  try{
+    if(window._fsSave)await window._fsSave("pv_history",state.history);
+  }catch(e){
+    console.error("反映済み保存エラー",e);
+    showToast("Excelは出力しましたが、反映済みの保存に失敗しました","error");
+    render();
+    return;
+  }
+  showToast(`${fname} をダウンロードしました（${totalSheets}客先）`);
+  render();
 }
 
 // 今日の発行分を書き出し
@@ -1930,8 +2013,8 @@ function renderGuideTab(){
     ${step(3,"<strong>客先を選択</strong>　「伝票発行」タブで客先を選びます。納品日がサイクルから自動で入ります。")}
     ${step(4,"<strong>数量を入力</strong>　品目の数量を入力します。Enterで次の行へ進めます。合計は自動計算されます。")}
     ${step(5,"<strong>納品書を発行・印刷</strong>　「納品書を発行する」→「印刷（B5横）」で印刷します。中央の破線で半分に切り、お客様控えと社内控えに分けます。")}
-    ${step(6,"<strong>1日の終わりに明細書データを書き出す</strong>　「発行履歴」→「📂 明細書用データを書き出す」でJSONを保存し、明細書Excelの取り込みマクロで転記します。")}
-    <div class="guide-note">伝票1枚につき1列（C列〜P列）に転記されます。同じ客先へ14枚を超えると警告が出ます。</div>
+    ${step(6,"<strong>1日の終わりに請求明細書をExcel出力</strong>　「📄 未反映→請求明細Excel」を押します。未反映の伝票が客先・請求月ごとのシートにまとまってダウンロードされます。")}
+    <div class="guide-note">Excelの取り込み操作は不要です。「未反映: N件」と出ている間は、まだ明細書に載せていない伝票があります。押し忘れても、後日同じボタンでまとめて出せます。</div>
     <div class="guide-warn">使い終わったら右上の「ログアウト」を必ず押してください。</div>
   `)}
 
@@ -2023,7 +2106,7 @@ function renderGuideTab(){
     ${step(1,"発行履歴 → 該当伝票の「再印刷」。伝票番号はそのままです。")}
     <div class="guide-sub">数量や金額を間違えた</div>
     ${step(1,"発行履歴 →「修正」→ 内容を直して保存 →「再印刷」。")}
-    ${step(2,"明細書データを再書き出しして、もう一度取り込んでください（同じ列に上書きされます）。")}
+    ${step(2,"発行履歴の「締め日期間で書き出し」で、該当月の明細書を再出力できます。")}
     <div class="guide-sub">履歴を削除したい</div>
     ${step(1,"発行履歴の「削除」。確認後に消えます。元に戻せません。")}
     <div class="guide-warn">削除前に明細書への書き出しを済ませてください。</div>
