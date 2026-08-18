@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <title>プゥル・ヴー 納品書発行システム</title>
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;600&display=swap" rel="stylesheet">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
 <script type="module">
 import { initializeApp, deleteApp } from "https://www.gstatic.com/firebasejs/12.13.0/firebase-app.js";
@@ -1027,7 +1027,7 @@ function renderHistoryTab(){
       <div style="display:flex;align-items:flex-end;gap:10px;flex-wrap:wrap">
         <button onclick="exportMeisaiJson()" style="background:#37474f;color:#fff;border:none;padding:10px 18px;border-radius:6px;cursor:pointer;font-size:13px;font-weight:600;white-space:nowrap">📂 明細書用データを書き出す</button>
       </div>
-      <div style="font-size:12px;color:#777;margin-top:6px">※ 締め日を過ぎると自動で翌月シートに切り替わります。書き出したJSONをExcelマクロで取り込んでください。</div>
+      <div style="font-size:12px;color:#777;margin-top:6px">※ 普段は不要です。旧マクロ（プゥル・ヴー明細書.xlsm の「データ取り込み」）を使うときだけ書き出してください。</div>
     </div>
   </div>
   <div class="card">
@@ -1602,20 +1602,6 @@ function renderSettingsTab(){
   <div class="card"><h3>会社情報</h3><div style="font-size:13px;line-height:2;color:#444"><div><strong>${COMPANY.name}</strong>　${COMPANY.division}</div><div>${COMPANY.zip}　${COMPANY.address}</div><div>${COMPANY.tel}　${COMPANY.fax}</div></div></div>`;
 }
 
-const BLANK_XLSX_B64 = "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";
-
-function b64ToAB(b64) {
-  const bin = atob(b64);
-  const buf = new ArrayBuffer(bin.length);
-  const arr = new Uint8Array(buf);
-  for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
-  return buf;
-}
-
-// 締め日から対象期間を計算
-// closingDay: 20/25/0(月末)
-// baseYM: {year, month} = 締め日が含まれる月
-// 戻り値: {from: Date, to: Date}
 function getClosingPeriod(closingDay, baseYear, baseMonth) {
   let to, from;
   if (closingDay === 0) {
@@ -1656,10 +1642,6 @@ function getBillingMonthFromDate(dateVal, closingDay){
   return {year:y, month:m};
 }
 
-function sheetCustomerName(sheetLabel){
-  return String(sheetLabel||"").replace(/\(\d+\)$/,"").replace(/_\d+年\d+月$/,"").trim();
-}
-
 function pendingBillingInvoices(){
   return (state.history||[]).filter(h=>!h.void&&!h.billingExportedAt);
 }
@@ -1670,103 +1652,146 @@ function billingExportBtnHtml(){
   return `<button onclick="exportUnexportedExcel()" style="background:#854f0b;color:#fff;border:none;border-radius:8px;padding:8px 14px;cursor:pointer;font-size:13px;font-weight:600;white-space:nowrap">📄 未反映→請求明細Excel${badge}</button>`;
 }
 
-// 伝票リスト（最大14枚）を1シートに書き込む
-function fillSheet(wb, invoices, sheetLabel, yr, mo) {
-  // テンプレートをコピー（スタイル・数式・結合を完全保持）
-  const templateWb = XLSX.read(b64ToAB(BLANK_XLSX_B64), {type:"array", cellStyles:true});
-  const templateWs = templateWb.Sheets[templateWb.SheetNames[0]];
-  const ws = JSON.parse(JSON.stringify(templateWs));
-
-  // セルに値をセットするヘルパー（既存スタイルを保持しつつ値だけ更新）
-  function setCell(addr, type, value) {
-    if (!ws[addr]) ws[addr] = {};
-    ws[addr].t = type;
-    ws[addr].v = value;
-    if (type === "n" && typeof value === "string" && value.startsWith("=")) {
-      ws[addr].t = "n";
-      ws[addr].f = value.slice(1);
-      ws[addr].v = 0;
+// プゥル・ヴー明細書.xlsm と同じレイアウトで .xlsx を直接生成
+function sanitizeSheetName(n){return String(n||"").replace(/[\\/*?:\[\]]/g,"_").slice(0,31);}
+function xlCol(n){let s="";while(n>0){const r=(n-1)%26;s=String.fromCharCode(65+r)+s;n=Math.floor((n-1)/26);}return s;}
+function meisaiThin(){return{style:"thin",color:{argb:"FF000000"}};}
+function meisaiBox(ws,r1,c1,r2,c2,inner){
+  const t=meisaiThin();
+  for(let r=r1;r<=r2;r++){
+    for(let c=c1;c<=c2;c++){
+      const b=inner?{top:t,left:t,bottom:t,right:t}:{};
+      if(r===r1)b.top=t;if(r===r2)b.bottom=t;if(c===c1)b.left=t;if(c===c2)b.right=t;
+      ws.getCell(r,c).border=b;
     }
   }
-
-  // ── ヘッダー部分 ──
-  // A5: 客先名（A5:F5結合セル）
-  setCell("A5", "s", sheetCustomerName(sheetLabel));
-  // O3: 年（数字）, Q3: 月（数字）
-  setCell("O3", "n", yr);
-  setCell("Q3", "n", mo);
-  // A9: 締め日表示（客先の締め日に合わせて自動表示）
-  const closingDay = state.closingDays[sheetCustomerName(sheetLabel)];
-  const shimeLbl = (closingDay === 0) ? "月末〆" : (closingDay ? closingDay + "日〆" : "25日〆");
-  setCell("A9", "s", shimeLbl);
-
-  const colLetters = ["C","D","E","F","G","H","I","J","K","L","M","N","O","P"];
-
-  // ── 行10: 伝票番号 / 行11: 納品日 ──
-  invoices.forEach((inv, i) => {
-    if (i >= 14) return;
-    const col = colLetters[i];
-    setCell(col + "10", "s", inv.invoiceNo || "");
-    const d = new Date(inv.deliveryDate);
-    // 納品日をM/D形式で表示（例: 5/2）
-    const mdDate = isNaN(d) ? "" : (d.getMonth()+1) + "/" + d.getDate();
-    setCell(col + "11", "s", mdDate);
-  });
-
-  // ── 品名の収集（登場順を保持）──
-  const productOrder = [];
-  const productSet = new Set();
-  invoices.forEach(inv => {
-    (inv.items || []).forEach(it => {
-      if (it.name && !productSet.has(it.name)) {
-        productOrder.push(it.name);
-        productSet.add(it.name);
-      }
-    });
-  });
-
-  // 単価マップ（最後に登場した値を使用）
-  const priceMap = {};
-  invoices.forEach(inv => {
-    (inv.items || []).forEach(it => { if (it.name) priceMap[it.name] = it.price || 0; });
-  });
-
-  // ── 行12〜: 品名・単価・数量 ──
-  productOrder.forEach((pname, rowIdx) => {
-    const excelRow = 12 + rowIdx;
-    setCell("A" + excelRow, "s", pname);
-    setCell("B" + excelRow, "n", priceMap[pname] || 0);
-
-    // C〜P列: 各伝票の数量
-    invoices.forEach((inv, invIdx) => {
-      if (invIdx >= 14) return;
-      const item = (inv.items || []).find(it => it.name === pname);
-      const qty = item ? (parseFloat(item.qty) || 0) : 0;
-      if (qty > 0) setCell(colLetters[invIdx] + excelRow, "n", qty);
-    });
-    // Q・R列の数式はテンプレート既存のものをそのまま使用（上書きしない）
-  });
-
-  // !ref を更新（最大44行 or データ行数に合わせる）
-  ws["!ref"] = "A1:R" + Math.max(44, 11 + productOrder.length);
-
-  const safeLabel = sheetLabel.substring(0, 31);
-  XLSX.utils.book_append_sheet(wb, ws, safeLabel);
 }
-
-// 客先+伝票リストからワークブックにシートを追加（14枚超えで自動分割）
-function appendSheetsForCustomer(wb, customer, invoices, yr, mo) {
-  const pageSize = 14;
-  const pages = Math.max(1, Math.ceil(invoices.length / pageSize));
-  const ym = `_${yr}年${mo}月`;
-  const extra = pages > 1 ? String(pages).length + 2 : 0;
-  const raw = String(customer || "").replace(/[\/\\:*?\[\]]/g, "");
-  const baseName = raw.substring(0, Math.max(1, 31 - ym.length - extra)) + ym;
-  for (let p = 0; p < pages; p++) {
-    const chunk = invoices.slice(p * pageSize, (p + 1) * pageSize);
-    const label = pages > 1 ? baseName + `(${p+1})` : baseName;
-    fillSheet(wb, chunk, label, yr, mo);
+function formatMeisaiMD(dateVal){
+  const d=new Date(dateVal);
+  if(isNaN(d))return "";
+  return (d.getMonth()+1)+"/"+d.getDate();
+}
+function invoicesToMeisaiItems(inv){
+  return (inv.items||[]).filter(it=>!it.isDeliverySite&&it.name&&parseFloat(it.qty)>0).map(it=>({
+    name:it.name,
+    price:parseFloat(it.price)||0,
+    qty:parseFloat(it.qty)||0
+  }));
+}
+function buildMeisaiSheetData(customer, invoices, year, month, sheetName){
+  return {
+    customer,
+    sheetName: sanitizeSheetName(sheetName),
+    year,
+    month,
+    closingDay: resolveClosingDay(customer),
+    invoices: invoices.map(inv=>({
+      invoiceNo: inv.invoiceNo||"",
+      deliveryDate: inv.deliveryDate,
+      items: invoicesToMeisaiItems(inv)
+    }))
+  };
+}
+function collectMeisaiSheets(customer, invoices, year, month){
+  const pageSize=14;
+  const pages=Math.max(1, Math.ceil((invoices||[]).length/pageSize));
+  const sheets=[];
+  for(let p=0;p<pages;p++){
+    const chunk=invoices.slice(p*pageSize,(p+1)*pageSize);
+    const base=customer+"_"+year+"年"+month+"月";
+    const sheetName=pages>1?base+"("+(p+1)+")":base;
+    sheets.push(buildMeisaiSheetData(customer, chunk, year, month, sheetName));
   }
+  return sheets;
+}
+function setupMeisaiSheet(ws, data){
+  const font={name:"游ゴシック",size:10};
+  const fontTitle={name:"游ゴシック",size:16,bold:true};
+  const yen='"¥"#,##0;;';
+  const qtyFmt="0;;";
+  ws.views=[{showGridLines:false,state:"normal"}];
+  ws.pageSetup.paperSize=13;
+  ws.pageSetup.orientation="portrait";
+  ws.pageSetup.fitToPage=true;
+  ws.pageSetup.fitToWidth=1;
+  ws.pageSetup.fitToHeight=1;
+  ws.pageSetup.horizontalCentered=true;
+  ws.pageSetup.printArea="A1:R44";
+  ws.columns=[{width:22},{width:8},...Array.from({length:14},()=>({width:6.6})),{width:8},{width:12}];
+  ws.mergeCells("A1:R1");ws.mergeCells("A3:F3");ws.mergeCells("N5:O5");ws.mergeCells("P5:R5");
+  ws.mergeCells("B6:G6");ws.mergeCells("B7:C7");ws.mergeCells("N6:O6");ws.mergeCells("P6:R6");ws.mergeCells("N7:O7");ws.mergeCells("P7:R7");
+  ws.mergeCells("C9:P9");ws.mergeCells("A10:A11");ws.mergeCells("B10:B11");ws.mergeCells("Q10:Q11");ws.mergeCells("R10:R11");
+  for(let i=3;i<=16;i++)ws.mergeCells(xlCol(i)+"10:"+xlCol(i)+"11");
+  ws.getRow(1).height=24;ws.getRow(10).height=18;ws.getRow(11).height=16;
+  ws.getCell("A1").value="請　求　明　細　書";
+  ws.getCell("A1").font=fontTitle;ws.getCell("A1").alignment={horizontal:"center",vertical:"middle"};
+  ws.getCell("A3").value=(typeof COMPANY!=="undefined"&&COMPANY.name)?COMPANY.name:"株式会社プゥル・ヴー";
+  ws.getCell("A3").font={name:"游ゴシック",size:12,bold:true};
+  ws.getCell("G3").value="様";
+  ws.getCell("O3").value=data.year;ws.getCell("P3").value="年";ws.getCell("Q3").value=data.month;ws.getCell("R3").value="月分";
+  ws.getCell("N5").value="小計金額";ws.getCell("P5").value={formula:"SUM(R12:R44)"};ws.getCell("P5").numFmt=yen;
+  ws.getCell("A6").value="納品客先";
+  ws.getCell("B6").value=data.customer;ws.getCell("B6").font={name:"游ゴシック",size:12};
+  ws.getCell("N6").value="消費税";ws.getCell("P6").value={formula:"P5*10%"};ws.getCell("P6").numFmt=yen;
+  ws.getCell("A7").value="締め日";
+  ws.getCell("B7").value=data.closingDay===0?"末":(data.closingDay?String(data.closingDay):"末");
+  ws.getCell("D7").value="日";
+  ws.getCell("N7").value="ご請求金額";ws.getCell("P7").value={formula:"SUM(P5:R6)"};ws.getCell("P7").numFmt=yen;ws.getCell("P7").font={name:"游ゴシック",size:12,bold:true};
+  ws.getCell("C9").value="納　　品　　日";ws.getCell("C9").alignment={horizontal:"center"};ws.getCell("C9").font={name:"游ゴシック",size:9,bold:true};
+  ws.getCell("A10").value="品名";ws.getCell("B10").value="単価";ws.getCell("Q10").value="合計数";ws.getCell("R10").value="合計金額";
+  ["A10","B10","Q10","R10"].forEach(a=>{ws.getCell(a).alignment={horizontal:"center",vertical:"middle"};ws.getCell(a).font={name:"游ゴシック",size:9,bold:true};});
+  for(let r=12;r<=44;r++){
+    ws.getCell("Q"+r).value={formula:"SUM(C"+r+":P"+r+")"};ws.getCell("Q"+r).numFmt=qtyFmt;ws.getCell("Q"+r).alignment={horizontal:"center"};
+    ws.getCell("R"+r).value={formula:"B"+r+"*Q"+r};ws.getCell("R"+r).numFmt=yen;
+    ws.getCell("B"+r).numFmt=yen;
+    for(let c=3;c<=16;c++)ws.getCell(r,c).alignment={horizontal:"center"};
+    ws.getCell("A"+r).font=font;
+  }
+  const itemRows=new Map();let nextRow=12;
+  (data.invoices||[]).slice(0,14).forEach((inv,i)=>{
+    const letter=xlCol(3+i);
+    const c=ws.getCell(letter+"10");
+    c.value=formatMeisaiMD(inv.deliveryDate);
+    c.alignment={horizontal:"center",vertical:"middle"};
+    c.font={name:"游ゴシック",size:9};
+    (inv.items||[]).forEach(it=>{
+      const key=it.name+"|"+it.price;
+      let row=itemRows.get(key);
+      if(!row){
+        if(nextRow>44)return;
+        row=nextRow++;
+        itemRows.set(key,row);
+        ws.getCell("A"+row).value=it.name;
+        ws.getCell("B"+row).value=it.price;
+      }
+      const cell=ws.getCell(letter+row);
+      cell.value=(parseFloat(cell.value)||0)+it.qty;
+    });
+  });
+  meisaiBox(ws,1,1,1,18,false);
+  meisaiBox(ws,3,1,3,6,false);
+  meisaiBox(ws,6,2,6,7,false);
+  meisaiBox(ws,7,2,7,3,false);
+  meisaiBox(ws,5,14,7,18,true);
+  meisaiBox(ws,9,3,9,16,true);
+  meisaiBox(ws,10,1,44,18,true);
+}
+async function exportMeisaiWorkbook(sheets, filename){
+  if(typeof ExcelJS==="undefined"){showToast("Excelライブラリの読み込みに失敗しました","error");return false;}
+  if(!sheets.length){showToast("書き出すデータがありません","error");return false;}
+  const wb=new ExcelJS.Workbook();
+  sheets.forEach(data=>{
+    const ws=wb.addWorksheet(data.sheetName);
+    setupMeisaiSheet(ws,data);
+  });
+  const buf=await wb.xlsx.writeBuffer();
+  const blob=new Blob([buf],{type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"});
+  const a=document.createElement("a");
+  a.href=URL.createObjectURL(blob);
+  a.download=filename;
+  a.click();
+  URL.revokeObjectURL(a.href);
+  return true;
 }
 
 // 未反映の伝票を請求月シートにまとめて書き出し（プリームスと同じ運用）
@@ -1782,20 +1807,19 @@ async function exportUnexportedExcel(){
     const key=customer+"\0"+bm.year+"\0"+bm.month;
     if(!sheetMap.has(key))sheetMap.set(key,{customer,year:bm.year,month:bm.month,closingDay:cd});
   });
-  const wb=XLSX.utils.book_new();
-  let totalSheets=0;
+  const sheets=[];
   sheetMap.forEach(({customer,year,month,closingDay})=>{
     const {from,to}=getClosingPeriod(closingDay,year,month);
     const invoices=state.history.filter(h=>!h.void&&h.customer===customer&&dateInRange(h.deliveryDate,from,to));
     invoices.sort((a,b)=>new Date(a.deliveryDate)-new Date(b.deliveryDate));
     if(!invoices.length)return;
-    appendSheetsForCustomer(wb,customer,invoices,year,month);
-    totalSheets++;
+    sheets.push(...collectMeisaiSheets(customer,invoices,year,month));
   });
-  if(!totalSheets){showToast("該当期間に発行履歴がありません","error");return;}
+  if(!sheets.length){showToast("該当期間に発行履歴がありません","error");return;}
   const d=new Date();
   const fname=`請求明細書_${d.getFullYear()}年${d.getMonth()+1}月${d.getDate()}日.xlsx`;
-  XLSX.writeFile(wb,fname);
+  const ok=await exportMeisaiWorkbook(sheets,fname);
+  if(!ok)return;
   const now=new Date().toISOString();
   toMark.forEach(h=>{h.billingExportedAt=now;});
   try{localStorage.setItem("pv_history",JSON.stringify(state.history));}catch{}
@@ -1807,14 +1831,14 @@ async function exportUnexportedExcel(){
     render();
     return;
   }
-  showToast(`${fname} をダウンロードしました（${totalSheets}客先）`);
+  showToast(`${fname} をダウンロードしました（${sheets.length}シート）`);
   render();
 }
 
 // 今日の発行分を書き出し
-function exportTodayExcel() {
+async function exportTodayExcel() {
   const todayStr = fmtDate(new Date());
-  const filtered = state.history.filter(h => fmtDate(new Date(h.deliveryDate)) === todayStr);
+  const filtered = state.history.filter(h => !h.void && fmtDate(new Date(h.deliveryDate)) === todayStr);
   if (filtered.length === 0) { showToast("今日の発行履歴がありません", "error"); return; }
   const d = new Date();
   const yr = d.getFullYear(), mo = d.getMonth() + 1;
@@ -1824,15 +1848,18 @@ function exportTodayExcel() {
     if (!byCustomer[c]) byCustomer[c] = [];
     byCustomer[c].push(h);
   });
-  const wb = XLSX.utils.book_new();
-  Object.keys(byCustomer).forEach(c => appendSheetsForCustomer(wb, c, byCustomer[c], yr, mo));
+  const sheets=[];
+  Object.keys(byCustomer).forEach(c => {
+    const invoices=byCustomer[c].slice().sort((a,b)=>new Date(a.deliveryDate)-new Date(b.deliveryDate));
+    sheets.push(...collectMeisaiSheets(c, invoices, yr, mo));
+  });
   const fname = `請求明細書_${yr}年${mo}月${d.getDate()}日.xlsx`;
-  XLSX.writeFile(wb, fname);
-  showToast(`${fname} をダウンロードしました`);
+  const ok=await exportMeisaiWorkbook(sheets,fname);
+  if(ok)showToast(`${fname} をダウンロードしました`);
 }
 
 // 締め日期間で書き出し
-function exportClosingExcel() {
+async function exportClosingExcel() {
   const custEl = document.getElementById("export-cust");
   const monthEl = document.getElementById("export-month");
   if (!monthEl || !monthEl.value) { showToast("年月を選択してください", "error"); return; }
@@ -1840,31 +1867,26 @@ function exportClosingExcel() {
   const baseYear = parseInt(yrStr), baseMonth = parseInt(moStr);
   const selCust = custEl ? custEl.value : "";
 
-  // 対象客先を絞り込む
   let targets = state.customers.filter(c => state.closingDays[c.name] !== undefined && state.closingDays[c.name] !== "");
   if (selCust) targets = targets.filter(c => c.name === selCust);
   if (targets.length === 0) { showToast("締め日が設定された客先がありません", "error"); return; }
 
-  const wb = XLSX.utils.book_new();
-  let totalSheets = 0;
-
+  const sheets=[];
   targets.forEach(cust => {
     const closingDay = state.closingDays[cust.name];
     const { from, to } = getClosingPeriod(closingDay, baseYear, baseMonth);
     const invoices = state.history.filter(h =>
-      h.customer === cust.name && dateInRange(h.deliveryDate, from, to)
+      !h.void && h.customer === cust.name && dateInRange(h.deliveryDate, from, to)
     );
     if (invoices.length === 0) return;
-    // 日付順にソート
     invoices.sort((a, b) => new Date(a.deliveryDate) - new Date(b.deliveryDate));
-    appendSheetsForCustomer(wb, cust.name, invoices, baseYear, baseMonth);
-    totalSheets++;
+    sheets.push(...collectMeisaiSheets(cust.name, invoices, baseYear, baseMonth));
   });
 
-  if (totalSheets === 0) { showToast("該当期間に発行履歴がありません", "error"); return; }
+  if (!sheets.length) { showToast("該当期間に発行履歴がありません", "error"); return; }
   const fname = `請求明細書_${baseYear}年${baseMonth}月締め.xlsx`;
-  XLSX.writeFile(wb, fname);
-  showToast(`${fname} をダウンロードしました（${totalSheets}客先）`);
+  const ok=await exportMeisaiWorkbook(sheets,fname);
+  if(ok)showToast(`${fname} をダウンロードしました（${sheets.length}シート）`);
 }
 
 
