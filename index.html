@@ -780,11 +780,17 @@ function renderIssueTab(){
   </div>`:""}`;
 }
 
+function resetIssueCustomItems(){
+  state.issue.customItems=[{name:"",qty:"",price:""}];
+  state.issue.customPanelOpen=false;
+}
+
 function selectCustomer(name){
   if(name==="__FREE__"){
     state.issue.freeCustomer=true;
     state.issue.customer="";
     state.issue.items=[];
+    resetIssueCustomItems();
     state.issue.useCustom=true;
     state.issue.customPanelOpen=true;
     const today=new Date();today.setDate(today.getDate()+1);
@@ -796,7 +802,8 @@ function selectCustomer(name){
   state.issue.freeCustomer=false;
   state.issue.customer=name;
   state.issue.deliverySite=isKanagawaRodoCustomer(name)?(state.issue.deliverySite||KANAGAWA_RODO_SITES[0]):"";
-  if(!name){state.issue.items=[];state.issue.deliveryDate="";state.issue.deliverySite="";render();return;}
+  if(!name){state.issue.items=[];state.issue.deliveryDate="";state.issue.deliverySite="";resetIssueCustomItems();render();return;}
+  resetIssueCustomItems();
   state.issue.deliveryDate=toInput(nextDelivery(name));
   const cp=state.prices.filter(p=>p.customer===name);
   state.issue.items=cp.map(p=>{
@@ -897,7 +904,14 @@ function addCustomItem(){
   },50);
 }
 
-function removeCustomItem(i){state.issue.customItems.splice(i,1);render();}
+function removeCustomItem(i){
+  state.issue.customItems.splice(i,1);
+  if(!state.issue.customItems.length){
+    state.issue.customItems=[{name:"",qty:"",price:""}];
+    state.issue.customPanelOpen=false;
+  }
+  render();
+}
 function toggleCustom(v){state.issue.useCustom=v;render();}
 async function issueInvoice(){
   if(!state.issue.customer&&!state.issue.freeCustomer){showToast("客先を選択してください","error");return;}
@@ -1004,7 +1018,7 @@ function renderHistoryTab(){
   const emptyHtml=`<div style="text-align:center;color:#aaa;padding:40px">履歴がありません</div>`;
 
   const todayStr=fmtDate(new Date());
-  const todayCount=state.history.filter(h=>fmtDate(new Date(h.deliveryDate))===todayStr).length;
+  const todayCount=state.history.filter(h=>!h.void&&fmtDate(new Date(h.deliveryDate))===todayStr).length;
   // 締め日別・客先別の書き出し候補を生成
   const closingOpts=[...new Set(Object.values(state.closingDays))].filter(v=>v!=="").sort((a,b)=>a-b);
   const closingCustOpts=state.customers.map(c=>{const cd=state.closingDays[c.name];const cdLabel=cd===0?"月末〆":cd?cd+"日〆":"締め日未設定";return`<option value="${c.name}">${c.name}（${cdLabel}）</option>`;}).join("");
@@ -1020,7 +1034,7 @@ function renderHistoryTab(){
     </div>
     <div style="font-size:12px;color:#555;margin-bottom:12px;line-height:1.6">1日の終わりに押すと、未反映の伝票が請求月のシートにまとまってダウンロードされます。Excelの取り込み操作は不要です。押し忘れ分も含まれます。</div>
     <div style="display:flex;align-items:flex-end;gap:10px;flex-wrap:wrap;margin-bottom:10px">
-      <div><label class="lbl">今日（${todayStr}）発行分 ${todayCount}件（再出力）</label>
+      <div><label class="lbl">今日（${todayStr}）納品分 ${todayCount}件（再出力）</label>
         <button onclick="exportTodayExcel()" style="display:block;background:#1565c0;color:#fff;border:none;padding:10px 22px;border-radius:8px;cursor:pointer;font-size:14px;font-weight:600;white-space:nowrap;margin-top:4px">📥 今日の分をExcel書き出し</button>
         <button onclick="openMeisaiView('today')" style="display:block;background:#fff;border:1px solid #1565c0;color:#1565c0;padding:8px 22px;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600;white-space:nowrap;margin-top:6px">👁 今日の分を見る</button>
       </div>
@@ -1136,7 +1150,12 @@ async function saveHistoryEdit(){
   const eh=state.editingHistory;
   const sub=eh.items.reduce((s,i)=>(parseFloat(i.qty)||0)*(parseFloat(i.price)||0)+s,0);
   const total=Math.max(sub,eh.minGuarantee||0);
-  state.history=state.history.map(h=>h.id===eh.id?{...h,invoiceNo:eh.invoiceNo,deliveryDate:eh.deliveryDate?fromInput(eh.deliveryDate):h.deliveryDate,items:eh.items,subtotal:sub,total}:h);
+  state.history=state.history.map(h=>{
+    if(h.id!==eh.id)return h;
+    const updated={...h,invoiceNo:eh.invoiceNo,deliveryDate:eh.deliveryDate?fromInput(eh.deliveryDate):h.deliveryDate,items:eh.items,subtotal:sub,total};
+    delete updated.billingExportedAt;
+    return updated;
+  });
   window._issuingInvoice=true;
   try{ await window._fsSave("pv_history",state.history); }catch(e){ console.error("履歴修正保存エラー",e); showToast("⚠️ 保存に失敗しました","error"); }
   try{ localStorage.setItem("pv_history",JSON.stringify(state.history)); }catch{}
@@ -1660,7 +1679,7 @@ function pendingBillingInvoices(){
 }
 
 function lastBillingExportBatch(){
-  const stamped=(state.history||[]).filter(h=>h.billingExportedAt);
+  const stamped=(state.history||[]).filter(h=>!h.void&&h.billingExportedAt);
   if(!stamped.length)return [];
   const latest=stamped.reduce((m,h)=>h.billingExportedAt>m?h.billingExportedAt:m,"");
   return stamped.filter(h=>h.billingExportedAt===latest);
@@ -1678,17 +1697,20 @@ async function undoLastBillingExport(){
   const batch=lastBillingExportBatch();
   if(!batch.length){showToast("取り消せる反映がありません","error");return;}
   if(!confirm("直前の請求明細反映（"+batch.length+"件）を未反映に戻しますか？\nもう一度「未反映→請求明細Excel」で出せます。"))return;
+  const savedAt=batch.map(h=>h.billingExportedAt);
   batch.forEach(h=>{delete h.billingExportedAt;});
-  try{localStorage.setItem("pv_history",JSON.stringify(state.history));}catch{}
+  window._issuingInvoice=true;
   try{
     if(window._fsSave)await window._fsSave("pv_history",state.history);
+    try{localStorage.setItem("pv_history",JSON.stringify(state.history));}catch{}
+    showToast(batch.length+"件を未反映に戻しました");
   }catch(e){
     console.error("未反映へ戻す保存エラー",e);
-    showToast("戻しましたが、保存に失敗しました","error");
-    render();
-    return;
+    batch.forEach((h,i)=>{if(savedAt[i])h.billingExportedAt=savedAt[i];});
+    showToast("保存に失敗しました。反映状態は変更されていません","error");
+  }finally{
+    setTimeout(()=>{window._issuingInvoice=false;},2000);
   }
-  showToast(batch.length+"件を未反映に戻しました");
   render();
 }
 
@@ -1743,6 +1765,28 @@ function collectMeisaiSheets(customer, invoices, year, month){
     sheets.push(buildMeisaiSheetData(customer, chunk, year, month, sheetName));
   }
   return sheets;
+}
+const MEISAI_MAX_ITEM_ROWS=33;
+function countMeisaiItemsInSheetData(data){
+  const keys=new Set();
+  (data.invoices||[]).slice(0,14).forEach(inv=>{
+    (inv.items||[]).forEach(it=>{keys.add(it.name+"|"+it.price);});
+  });
+  return keys.size;
+}
+function checkMeisaiSheetsOverflow(sheets){
+  const over=[];
+  (sheets||[]).forEach(s=>{
+    const n=countMeisaiItemsInSheetData(s);
+    if(n>MEISAI_MAX_ITEM_ROWS)over.push({sheetName:s.sheetName||s.customer,count:n});
+  });
+  return over;
+}
+function confirmMeisaiOverflow(sheets){
+  const over=checkMeisaiSheetsOverflow(sheets);
+  if(!over.length)return true;
+  const msg=over.map(o=>"・"+o.sheetName+"（"+o.count+"品目 / 最大"+MEISAI_MAX_ITEM_ROWS+"）").join("\n");
+  return confirm("品目がテンプレート上限（"+MEISAI_MAX_ITEM_ROWS+"行）を超えるシートがあります。\n"+msg+"\n\n超過分はExcel・画面表示に含まれません。続けますか？");
 }
 function setupMeisaiSheet(ws, data){
   const font={name:"游ゴシック",size:10};
@@ -1858,19 +1902,21 @@ function gatherPendingMeisaiSheets(){
 function gatherTodayMeisaiSheets(){
   const todayStr=fmtDate(new Date());
   const filtered=state.history.filter(h=>!h.void&&fmtDate(new Date(h.deliveryDate))===todayStr);
-  if(!filtered.length)return {error:"今日の発行履歴がありません",sheets:[]};
-  const d=new Date();
-  const yr=d.getFullYear(), mo=d.getMonth()+1;
-  const byCustomer={};
+  if(!filtered.length)return {error:"今日の納品履歴がありません",sheets:[]};
+  const sheetMap=new Map();
   filtered.forEach(h=>{
-    const c=h.customer||"（客先不明）";
-    if(!byCustomer[c])byCustomer[c]=[];
-    byCustomer[c].push(h);
+    const customer=h.customer||"（客先不明）";
+    const cd=resolveClosingDay(customer);
+    const bm=getBillingMonthFromDate(h.deliveryDate,cd);
+    if(!bm)return;
+    const key=customer+"\0"+bm.year+"\0"+bm.month;
+    if(!sheetMap.has(key))sheetMap.set(key,{customer,year:bm.year,month:bm.month,invoices:[]});
+    sheetMap.get(key).invoices.push(h);
   });
   const sheets=[];
-  Object.keys(byCustomer).forEach(c=>{
-    const invoices=byCustomer[c].slice().sort((a,b)=>new Date(a.deliveryDate)-new Date(b.deliveryDate));
-    sheets.push(...collectMeisaiSheets(c,invoices,yr,mo));
+  sheetMap.forEach(({customer,year,month,invoices})=>{
+    invoices.sort((a,b)=>new Date(a.deliveryDate)-new Date(b.deliveryDate));
+    sheets.push(...collectMeisaiSheets(customer,invoices,year,month));
   });
   return {sheets};
 }
@@ -1900,10 +1946,14 @@ function renderMeisaiSheetHtml(data){
   const invoices=(data.invoices||[]).slice(0,14);
   const itemMap=new Map();
   const order=[];
+  let truncated=false;
   invoices.forEach((inv,i)=>{
     (inv.items||[]).forEach(it=>{
       const key=it.name+"|"+it.price;
-      if(!itemMap.has(key)){itemMap.set(key,{name:it.name,price:it.price,qtys:Array(14).fill(0)});order.push(key);}
+      if(!itemMap.has(key)){
+        if(order.length>=MEISAI_MAX_ITEM_ROWS){truncated=true;return;}
+        itemMap.set(key,{name:it.name,price:it.price,qtys:Array(14).fill(0)});order.push(key);
+      }
       itemMap.get(key).qtys[i]+=it.qty;
     });
   });
@@ -1923,7 +1973,9 @@ function renderMeisaiSheetHtml(data){
   const emptyCount=Math.max(0, Math.min(4, 12-rows.length));
   const empty=Array.from({length:emptyCount},()=>`<tr>${"<td></td>".repeat(18)}</tr>`).join("");
   const shime=data.closingDay===0?"末":(data.closingDay?String(data.closingDay):"末");
+  const truncWarn=truncated?`<div style="background:#fff3e0;border:1px solid #ffb74d;color:#e65100;padding:8px 12px;margin-bottom:8px;border-radius:6px;font-size:12px">⚠ 品目が${MEISAI_MAX_ITEM_ROWS}行を超えています。超過分は表示・Excel出力に含まれません。</div>`:"";
   return `<div class="meisai-sheet" id="meisai-sheet">
+    ${truncWarn}
     <div style="text-align:center;font-size:22px;font-weight:700;letter-spacing:.4em;padding:8px 0 12px;border:1px solid #222">請　求　明　細　書</div>
     <div style="display:flex;justify-content:space-between;gap:16px;margin-top:10px;align-items:flex-start">
       <div>
@@ -1970,6 +2022,7 @@ function closeMeisaiView(){
 }
 async function downloadOpenMeisai(){
   const mv=state.meisaiView;if(!mv)return;
+  if(!confirmMeisaiOverflow(mv.sheets))return;
   const d=new Date();
   const fname=`請求明細書_${d.getFullYear()}年${d.getMonth()+1}月${d.getDate()}日.xlsx`;
   const ok=await exportMeisaiWorkbook(mv.sheets,fname);
@@ -2002,9 +2055,9 @@ function renderMeisaiModal(){
     <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px">
       <div style="font-size:16px;font-weight:700;color:#1a1a2e">請求明細書</div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-        <button onclick="shiftMeisaiView(-1)" ${n<2?"disabled":""} style="padding:6px 12px;border:1px solid #ddd;background:#fff;border-radius:6px;cursor:pointer">◀ 前の客先</button>
+        <button onclick="shiftMeisaiView(-1)" ${n<2?"disabled":""} style="padding:6px 12px;border:1px solid #ddd;background:#fff;border-radius:6px;cursor:pointer">◀ 前へ</button>
         <span style="font-size:13px;color:#555">${mv.idx+1} / ${n}　${data.sheetName||""}</span>
-        <button onclick="shiftMeisaiView(1)" ${n<2?"disabled":""} style="padding:6px 12px;border:1px solid #ddd;background:#fff;border-radius:6px;cursor:pointer">次の客先 ▶</button>
+        <button onclick="shiftMeisaiView(1)" ${n<2?"disabled":""} style="padding:6px 12px;border:1px solid #ddd;background:#fff;border-radius:6px;cursor:pointer">次へ ▶</button>
         <button onclick="printOpenMeisai()" style="padding:6px 12px;border:none;background:#1a1a2e;color:#e8d5b7;border-radius:6px;cursor:pointer;font-weight:600">印刷</button>
         <button onclick="downloadOpenMeisai()" style="padding:6px 12px;border:none;background:#0277bd;color:#fff;border-radius:6px;cursor:pointer;font-weight:600">Excel出力</button>
         <button onclick="closeMeisaiView()" style="padding:6px 12px;border:1px solid #ddd;background:#f5f3ef;border-radius:6px;cursor:pointer">閉じる</button>
@@ -2037,22 +2090,25 @@ async function exportUnexportedExcel(){
     sheets.push(...collectMeisaiSheets(customer,invoices,year,month));
   });
   if(!sheets.length){showToast("該当期間に発行履歴がありません","error");return;}
+  if(!confirmMeisaiOverflow(sheets))return;
   const d=new Date();
   const fname=`請求明細書_${d.getFullYear()}年${d.getMonth()+1}月${d.getDate()}日.xlsx`;
   const ok=await exportMeisaiWorkbook(sheets,fname);
   if(!ok)return;
   const now=new Date().toISOString();
   toMark.forEach(h=>{h.billingExportedAt=now;});
-  try{localStorage.setItem("pv_history",JSON.stringify(state.history));}catch{}
+  window._issuingInvoice=true;
   try{
     if(window._fsSave)await window._fsSave("pv_history",state.history);
+    try{localStorage.setItem("pv_history",JSON.stringify(state.history));}catch{}
+    showToast(`${fname} をダウンロードしました（${sheets.length}シート）`);
   }catch(e){
     console.error("反映済み保存エラー",e);
-    showToast("Excelは出力しましたが、反映済みの保存に失敗しました","error");
-    render();
-    return;
+    toMark.forEach(h=>{delete h.billingExportedAt;});
+    showToast("Excelは出力しましたが、反映済みの保存に失敗しました。未反映のままです","error");
+  }finally{
+    setTimeout(()=>{window._issuingInvoice=false;},2000);
   }
-  showToast(`${fname} をダウンロードしました（${sheets.length}シート）`);
   render();
 }
 
@@ -2060,21 +2116,25 @@ async function exportUnexportedExcel(){
 async function exportTodayExcel() {
   const todayStr = fmtDate(new Date());
   const filtered = state.history.filter(h => !h.void && fmtDate(new Date(h.deliveryDate)) === todayStr);
-  if (filtered.length === 0) { showToast("今日の発行履歴がありません", "error"); return; }
+  if (filtered.length === 0) { showToast("今日の納品履歴がありません", "error"); return; }
   const d = new Date();
-  const yr = d.getFullYear(), mo = d.getMonth() + 1;
-  const byCustomer = {};
+  const sheetMap = new Map();
   filtered.forEach(h => {
-    const c = h.customer || "（客先不明）";
-    if (!byCustomer[c]) byCustomer[c] = [];
-    byCustomer[c].push(h);
+    const customer = h.customer || "（客先不明）";
+    const cd = resolveClosingDay(customer);
+    const bm = getBillingMonthFromDate(h.deliveryDate, cd);
+    if (!bm) return;
+    const key = customer + "\0" + bm.year + "\0" + bm.month;
+    if (!sheetMap.has(key)) sheetMap.set(key, { customer, year: bm.year, month: bm.month, invoices: [] });
+    sheetMap.get(key).invoices.push(h);
   });
-  const sheets=[];
-  Object.keys(byCustomer).forEach(c => {
-    const invoices=byCustomer[c].slice().sort((a,b)=>new Date(a.deliveryDate)-new Date(b.deliveryDate));
-    sheets.push(...collectMeisaiSheets(c, invoices, yr, mo));
+  const sheets = [];
+  sheetMap.forEach(({ customer, year, month, invoices }) => {
+    invoices.sort((a, b) => new Date(a.deliveryDate) - new Date(b.deliveryDate));
+    sheets.push(...collectMeisaiSheets(customer, invoices, year, month));
   });
-  const fname = `請求明細書_${yr}年${mo}月${d.getDate()}日.xlsx`;
+  if (!confirmMeisaiOverflow(sheets)) return;
+  const fname = `請求明細書_${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日.xlsx`;
   const ok=await exportMeisaiWorkbook(sheets,fname);
   if(ok)showToast(`${fname} をダウンロードしました`);
 }
@@ -2105,6 +2165,7 @@ async function exportClosingExcel() {
   });
 
   if (!sheets.length) { showToast("該当期間に発行履歴がありません", "error"); return; }
+  if (!confirmMeisaiOverflow(sheets)) return;
   const fname = `請求明細書_${baseYear}年${baseMonth}月締め.xlsx`;
   const ok=await exportMeisaiWorkbook(sheets,fname);
   if(ok)showToast(`${fname} をダウンロードしました（${sheets.length}シート）`);
@@ -2151,7 +2212,7 @@ function exportMeisaiJson() {
     }
 
     const invoices = state.history.filter(h =>
-      h.customer === cust.name && dateInRange(h.deliveryDate, from, to)
+      !h.void && h.customer === cust.name && dateInRange(h.deliveryDate, from, to)
     );
     if (invoices.length === 0) return;
 
@@ -2636,6 +2697,7 @@ window.markUnissuedNone=markUnissuedNone;
 function selectCustomerFromSidebar(customerName,dateStr){
   state.issue.freeCustomer=false;
   state.issue.customer=customerName;
+  resetIssueCustomItems();
   state.issue.deliveryDate=dateStr||toInput(nextDelivery(customerName));
   state.issue.deliverySite=isKanagawaRodoCustomer(customerName)?(state.issue.deliverySite||KANAGAWA_RODO_SITES[0]):"";
   const cp=state.prices.filter(p=>p.customer===customerName);
