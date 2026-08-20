@@ -224,7 +224,7 @@ td{padding:9px 8px;border-bottom:.5px solid #f0ede8;font-size:13px;overflow:hidd
 .btn-cancel{background:#eee;color:#333;border:none;padding:5px 10px;border-radius:6px;cursor:pointer;font-size:12px}
 .btn-reprint{background:#f0ede8;color:#333;border:none;padding:4px 10px;border-radius:6px;cursor:pointer;font-size:12px;margin-right:6px}
 .code-badge{background:#f0ede8;padding:2px 8px;border-radius:4px;font-size:11px}
-.inv-badge{background:#e8f5e9;color:#2e7d32;padding:2px 10px;border-radius:12px;font-size:11px}.inv-badge-void{background:#ffebee;color:#c62828;padding:2px 10px;border-radius:12px;font-size:11px;text-decoration:line-through}
+.inv-badge{background:#e8f5e9;color:#2e7d32;padding:2px 10px;border-radius:12px;font-size:11px}.inv-badge-void{background:#ffebee;color:#c62828;padding:2px 10px;border-radius:12px;font-size:11px;text-decoration:line-through}.inv-badge-none{background:#eceff1;color:#546e7a;padding:2px 10px;border-radius:12px;font-size:11px;font-weight:700}
 .toast{position:fixed;top:70px;right:20px;z-index:9999;padding:10px 20px;border-radius:8px;font-size:14px;color:#fff;box-shadow:0 4px 12px rgba(0,0,0,.2)}
 .overlay{position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:1000;display:flex;align-items:center;justify-content:center}
 .modal{background:#fff;border-radius:12px;padding:24px;max-width:920px;width:95%;max-height:90vh;overflow-y:auto}
@@ -562,6 +562,12 @@ function nextDelivery(name){
     if(isDeliveryDay(name,d))return d;
   }
   return new Date();
+}
+function isIssueNone(h){return !!(h&&h.issueNone);}
+function isRealInvoice(h){return h&&!h.void&&!h.issueNone;}
+function historyDeliveryKey(h){
+  if(!h||h.deliveryDate==null||h.deliveryDate==="")return "";
+  return toInput(h.deliveryDate instanceof Date?h.deliveryDate:new Date(h.deliveryDate));
 }
 function nextInvoiceNo(custName){
   const prefix=(custName==="__FREE__")?"999":(()=>{const c=state.customers.find(x=>x.name===custName);return c?c.id:"999";})();
@@ -973,9 +979,17 @@ async function issueInvoice(){
 
 // --- History Tab ---
 if(!state.openFolders)state.openFolders={};
+function historyRowHtml(h,showCustomer){
+  const custCell=showCustomer?`<td>${h.customer||"—"}</td>`:"";
+  const by=`<td style="text-align:center"><span style="background:#e8d5b7;padding:1px 7px;border-radius:4px;font-size:11px;font-weight:700">${h.issuedBy||"—"}</span></td>`;
+  if(isIssueNone(h)){
+    return `<tr style="background:#f4f6f7"><td><span class="inv-badge-none">発行なし</span></td>${custCell}<td>${fmtDate(h.deliveryDate)}</td><td>${fmtDate(h.issueDate)}</td>${by}<td style="text-align:right;color:#888">—</td><td style="white-space:nowrap"><button onclick="cancelIssueNone(${h.id})" style="background:#fff;border:1px solid #90a4ae;border-radius:4px;padding:2px 8px;cursor:pointer;font-size:11px;color:#546e7a">取消</button><button class="btn-danger" onclick="deleteHistory(${h.id})">削除</button></td></tr>`;
+  }
+  return `<tr style="${h.void?"background:#fff5f5;opacity:0.7":""}"><td><span class="${h.void?"inv-badge-void":"inv-badge"}">${h.invoiceNo}</span>${h.void?"<span style='font-size:11px;color:#c62828;margin-left:4px;font-weight:700'>没</span>":""}</td>${custCell}<td style="${h.void?"text-decoration:line-through;color:#aaa":""}">${fmtDate(h.deliveryDate)}</td><td style="${h.void?"text-decoration:line-through;color:#aaa":""}">${fmtDate(h.issueDate)}</td>${by}<td style="text-align:right;font-weight:600;${h.void?"text-decoration:line-through;color:#aaa":""}">¥${h.total?.toLocaleString()}</td><td style="white-space:nowrap"><button class="btn-edit" onclick="openHistoryEdit(${h.id})">修正</button><button class="btn-reprint" onclick="reprintInvoice(${h.id})">再印刷</button><button onclick="toggleVoid(${h.id})" style="background:${h.void?"#e8f5e9":"#fff3e0"};border:1px solid ${h.void?"#a5d6a7":"#ffcc80"};border-radius:4px;padding:2px 8px;cursor:pointer;font-size:11px;color:${h.void?"#2e7d32":"#e65100"}">${h.void?"復活":"没"}</button><button class="btn-danger" onclick="deleteHistory(${h.id})">削除</button></td></tr>`;
+}
 function renderHistoryTab(){
   if(state.editingHistory) return renderHistoryEdit();
-  const filtered=state.history.filter(h=>!state.histSearch||h.customer?.includes(state.histSearch)||h.invoiceNo?.includes(state.histSearch));
+  const filtered=state.history.filter(h=>!state.histSearch||h.customer?.includes(state.histSearch)||h.invoiceNo?.includes(state.histSearch)||(isIssueNone(h)&&state.histSearch.includes("発行無")));
 
   // グループ化（客先別 or 日付別）
   const groups={};
@@ -993,7 +1007,7 @@ function renderHistoryTab(){
 
   const sortedKeys=Object.keys(groups).sort(mode==="date"?(a,b)=>b.localeCompare(a):undefined);
 
-  const makeRows=(items,showCustomer)=>items.map(h=>`<tr style="${h.void?"background:#fff5f5;opacity:0.7":""}"><td><span class="${h.void?"inv-badge-void":"inv-badge"}">${h.invoiceNo}</span>${h.void?"<span style='font-size:11px;color:#c62828;margin-left:4px;font-weight:700'>没</span>":""}</td>${showCustomer?`<td>${h.customer||"—"}</td>`:""}<td style="${h.void?"text-decoration:line-through;color:#aaa":""}">${fmtDate(h.deliveryDate)}</td><td style="${h.void?"text-decoration:line-through;color:#aaa":""}">${fmtDate(h.issueDate)}</td><td style="text-align:center"><span style="background:#e8d5b7;padding:1px 7px;border-radius:4px;font-size:11px;font-weight:700">${h.issuedBy||"—"}</span></td><td style="text-align:right;font-weight:600;${h.void?"text-decoration:line-through;color:#aaa":""}">¥${h.total?.toLocaleString()}</td><td style="white-space:nowrap"><button class="btn-edit" onclick="openHistoryEdit(${h.id})">修正</button><button class="btn-reprint" onclick="reprintInvoice(${h.id})">再印刷</button><button onclick="toggleVoid(${h.id})" style="background:${h.void?"#e8f5e9":"#fff3e0"};border:1px solid ${h.void?"#a5d6a7":"#ffcc80"};border-radius:4px;padding:2px 8px;cursor:pointer;font-size:11px;color:${h.void?"#2e7d32":"#e65100"}">${h.void?"復活":"没"}</button><button class="btn-danger" onclick="deleteHistory(${h.id})">削除</button></td></tr>`).join("");
+  const makeRows=(items,showCustomer)=>items.map(h=>historyRowHtml(h,showCustomer)).join("");
 
   const folderHtml=sortedKeys.map(key=>{
     const items=groups[key];
@@ -1018,7 +1032,7 @@ function renderHistoryTab(){
   const emptyHtml=`<div style="text-align:center;color:#aaa;padding:40px">履歴がありません</div>`;
 
   const todayStr=fmtDate(new Date());
-  const todayCount=state.history.filter(h=>!h.void&&fmtDate(new Date(h.deliveryDate))===todayStr).length;
+  const todayCount=state.history.filter(h=>isRealInvoice(h)&&fmtDate(new Date(h.deliveryDate))===todayStr).length;
   // 締め日別・客先別の書き出し候補を生成
   const closingOpts=[...new Set(Object.values(state.closingDays))].filter(v=>v!=="").sort((a,b)=>a-b);
   const closingCustOpts=state.customers.map(c=>{const cd=state.closingDays[c.name];const cdLabel=cd===0?"月末〆":cd?cd+"日〆":"締め日未設定";return`<option value="${c.name}">${c.name}（${cdLabel}）</option>`;}).join("");
@@ -1074,6 +1088,7 @@ function renderHistoryTab(){
 function openHistoryEdit(id){
   const inv=state.history.find(h=>h.id===id);
   if(!inv)return;
+  if(isIssueNone(inv)){showToast("発行なしの記録は修正できません","error");return;}
   state.editingHistory={
     id:inv.id,
     invoiceNo:inv.invoiceNo,
@@ -1163,7 +1178,7 @@ async function saveHistoryEdit(){
   state.editingHistory=null;showToast("修正を保存しました");render();
 }
 
-function reprintInvoice(id){const inv=state.history.find(h=>h.id===id);if(!inv)return;state.printInvoice=inv;renderPrintModal(true);}
+function reprintInvoice(id){const inv=state.history.find(h=>h.id===id);if(!inv||isIssueNone(inv))return;state.printInvoice=inv;renderPrintModal(true);}
 
 let _invoiceLogVisible = false;
 async function toggleInvoiceLog(){
@@ -1206,7 +1221,7 @@ async function toggleInvoiceLog(){
 
 async function toggleVoid(id){
   const h=state.history.find(x=>x.id===id);
-  if(!h)return;
+  if(!h||isIssueNone(h))return;
   const msg=h.void?"この伝票の没を解除しますか？":"この伝票を没にしますか？";
   if(!confirm(msg))return;
   h.void=!h.void;
@@ -1220,7 +1235,14 @@ async function toggleVoid(id){
 
 async function deleteHistory(id){
   if(!confirm("この履歴を削除しますか？"))return;
+  const target=state.history.find(h=>h.id===id);
   state.history=state.history.filter(h=>h.id!==id);
+  if(target&&isIssueNone(target)){
+    const dateStr=historyDeliveryKey(target);
+    if(state.unissuedNone)delete state.unissuedNone[unissuedNoneKey(target.customer,dateStr)];
+    save("pv_unissued_none",state.unissuedNone||{});
+    if(window._fsSave)window._fsSave("pv_unissued_none",state.unissuedNone||{}).catch(e=>console.warn("unissuedNone save",e));
+  }
   window._issuingInvoice=true;
   try{ await window._fsSave("pv_history",state.history); }catch(e){ console.error("履歴削除保存エラー",e); }
   try{ localStorage.setItem("pv_history",JSON.stringify(state.history)); }catch{}
@@ -1675,11 +1697,11 @@ function getBillingMonthFromDate(dateVal, closingDay){
 }
 
 function pendingBillingInvoices(){
-  return (state.history||[]).filter(h=>!h.void&&!h.billingExportedAt);
+  return (state.history||[]).filter(h=>isRealInvoice(h)&&!h.billingExportedAt);
 }
 
 function lastBillingExportBatch(){
-  const stamped=(state.history||[]).filter(h=>!h.void&&h.billingExportedAt);
+  const stamped=(state.history||[]).filter(h=>isRealInvoice(h)&&h.billingExportedAt);
   if(!stamped.length)return [];
   const latest=stamped.reduce((m,h)=>h.billingExportedAt>m?h.billingExportedAt:m,"");
   return stamped.filter(h=>h.billingExportedAt===latest);
@@ -1891,7 +1913,7 @@ function gatherPendingMeisaiSheets(){
   const sheets=[];
   sheetMap.forEach(({customer,year,month,closingDay})=>{
     const {from,to}=getClosingPeriod(closingDay,year,month);
-    const invoices=state.history.filter(h=>!h.void&&h.customer===customer&&dateInRange(h.deliveryDate,from,to));
+    const invoices=state.history.filter(h=>isRealInvoice(h)&&h.customer===customer&&dateInRange(h.deliveryDate,from,to));
     invoices.sort((a,b)=>new Date(a.deliveryDate)-new Date(b.deliveryDate));
     if(!invoices.length)return;
     sheets.push(...collectMeisaiSheets(customer,invoices,year,month));
@@ -1901,7 +1923,7 @@ function gatherPendingMeisaiSheets(){
 }
 function gatherTodayMeisaiSheets(){
   const todayStr=fmtDate(new Date());
-  const filtered=state.history.filter(h=>!h.void&&fmtDate(new Date(h.deliveryDate))===todayStr);
+  const filtered=state.history.filter(h=>isRealInvoice(h)&&fmtDate(new Date(h.deliveryDate))===todayStr);
   if(!filtered.length)return {error:"今日の納品履歴がありません",sheets:[]};
   const sheetMap=new Map();
   filtered.forEach(h=>{
@@ -1934,7 +1956,7 @@ function gatherClosingMeisaiSheets(){
   targets.forEach(cust=>{
     const closingDay=state.closingDays[cust.name];
     const {from,to}=getClosingPeriod(closingDay,baseYear,baseMonth);
-    const invoices=state.history.filter(h=>!h.void&&h.customer===cust.name&&dateInRange(h.deliveryDate,from,to));
+    const invoices=state.history.filter(h=>isRealInvoice(h)&&h.customer===cust.name&&dateInRange(h.deliveryDate,from,to));
     if(!invoices.length)return;
     invoices.sort((a,b)=>new Date(a.deliveryDate)-new Date(b.deliveryDate));
     sheets.push(...collectMeisaiSheets(cust.name,invoices,baseYear,baseMonth));
@@ -2084,7 +2106,7 @@ async function exportUnexportedExcel(){
   const sheets=[];
   sheetMap.forEach(({customer,year,month,closingDay})=>{
     const {from,to}=getClosingPeriod(closingDay,year,month);
-    const invoices=state.history.filter(h=>!h.void&&h.customer===customer&&dateInRange(h.deliveryDate,from,to));
+    const invoices=state.history.filter(h=>isRealInvoice(h)&&h.customer===customer&&dateInRange(h.deliveryDate,from,to));
     invoices.sort((a,b)=>new Date(a.deliveryDate)-new Date(b.deliveryDate));
     if(!invoices.length)return;
     sheets.push(...collectMeisaiSheets(customer,invoices,year,month));
@@ -2115,7 +2137,7 @@ async function exportUnexportedExcel(){
 // 今日の発行分を書き出し
 async function exportTodayExcel() {
   const todayStr = fmtDate(new Date());
-  const filtered = state.history.filter(h => !h.void && fmtDate(new Date(h.deliveryDate)) === todayStr);
+  const filtered = state.history.filter(h => isRealInvoice(h) && fmtDate(new Date(h.deliveryDate)) === todayStr);
   if (filtered.length === 0) { showToast("今日の納品履歴がありません", "error"); return; }
   const d = new Date();
   const sheetMap = new Map();
@@ -2157,7 +2179,7 @@ async function exportClosingExcel() {
     const closingDay = state.closingDays[cust.name];
     const { from, to } = getClosingPeriod(closingDay, baseYear, baseMonth);
     const invoices = state.history.filter(h =>
-      !h.void && h.customer === cust.name && dateInRange(h.deliveryDate, from, to)
+      isRealInvoice(h) && h.customer === cust.name && dateInRange(h.deliveryDate, from, to)
     );
     if (invoices.length === 0) return;
     invoices.sort((a, b) => new Date(a.deliveryDate) - new Date(b.deliveryDate));
@@ -2212,7 +2234,7 @@ function exportMeisaiJson() {
     }
 
     const invoices = state.history.filter(h =>
-      !h.void && h.customer === cust.name && dateInRange(h.deliveryDate, from, to)
+      isRealInvoice(h) && h.customer === cust.name && dateInRange(h.deliveryDate, from, to)
     );
     if (invoices.length === 0) return;
 
@@ -2337,7 +2359,8 @@ function renderGuideTab(){
     ${step(1,"ログイン後、画面左に赤い「未発行 ○件」カードが出ます（未発行があるときだけ）。")}
     ${step(2,"昨日・本日・明日の納品サイクルで、まだ発行していない客先が一覧表示されます。")}
     ${step(3,"客先名を押すと、その客先・納品日が選ばれた状態で伝票発行画面に切り替わります。")}
-    <div class="guide-note">すべて発行済みになると、左のカードは自動で消えます。</div>
+    ${step(4,"納品がなかったときは「発行なし」を押します。未発行一覧から外れ、発行履歴に残ります。")}
+    <div class="guide-note">すべて発行済み（または発行なし）になると、左のカードは自動で消えます。発行なしは請求明細・売上には載りません。履歴の「取消」で未発行に戻せます。</div>
   `)}
 
   ${guideAcc("issue","📝 伝票発行・品目の追加",`
@@ -2643,7 +2666,7 @@ function getUnissuedAlerts(){
       const issued=state.history.some(h=>{
         if(h.void)return false;
         if(h.customer!==c.name)return false;
-        const hDate=toInput(h.deliveryDate instanceof Date?h.deliveryDate:new Date(h.deliveryDate));
+        const hDate=historyDeliveryKey(h);
         return hDate===dateStr;
       });
       if(!issued){
@@ -2675,24 +2698,89 @@ function pruneUnissuedNone(){
     if(dateStr&&dateStr<cut)delete state.unissuedNone[k];
   });
 }
-function markUnissuedNone(customer,dateStr){
+async function markUnissuedNone(customer,dateStr){
   try{
     if(!customer||!dateStr){showToast("客先または日付が不正です","error");return;}
     const dateLabel=fmtDate(fromInput(dateStr)||dateStr);
-    if(!confirm(`${customer}\n納品日 ${dateLabel} を「発行なし」にしますか？\n未発行一覧から外れます。`))return;
+    if(!confirm(`${customer}\n納品日 ${dateLabel} を「発行なし」にしますか？\n未発行一覧から外れ、発行履歴に残ります。`))return;
+    const already=state.history.some(h=>{
+      if(h.void)return false;
+      if(h.customer!==customer)return false;
+      return historyDeliveryKey(h)===dateStr;
+    });
+    if(already){showToast("この納品日はすでに履歴にあります","error");return;}
+    let id=Date.now();
+    while(state.history.some(h=>h.id===id))id++;
+    const rec={
+      id,
+      invoiceNo:"発行なし",
+      customer,
+      deliveryDate:fromInput(dateStr),
+      issueDate:new Date(),
+      items:[],
+      subtotal:0,
+      minGuarantee:0,
+      total:0,
+      memo:"発行なし",
+      deliverySite:"",
+      issuedBy:window._userShortId||"",
+      issuedByName:window._userDisplayName||"",
+      issueNone:true
+    };
+    state.history.unshift(rec);
     if(!state.unissuedNone)state.unissuedNone={};
     state.unissuedNone[unissuedNoneKey(customer,dateStr)]=true;
     pruneUnissuedNone();
-    save("pv_unissued_none",state.unissuedNone);
-    if(window._fsSave)window._fsSave("pv_unissued_none",state.unissuedNone).catch(e=>console.warn("unissuedNone save",e));
-    showToast("発行なしにしました");
     render();
+    window._issuingInvoice=true;
+    try{
+      if(window._fsSave)await window._fsSave("pv_history",state.history);
+      try{localStorage.setItem("pv_history",JSON.stringify(state.history));}catch{}
+      save("pv_unissued_none",state.unissuedNone);
+      showToast("発行なしを履歴に残しました");
+    }catch(e){
+      console.error("発行なし履歴保存エラー",e);
+      state.history=state.history.filter(h=>h.id!==rec.id);
+      delete state.unissuedNone[unissuedNoneKey(customer,dateStr)];
+      showToast("履歴の保存に失敗しました","error");
+      render();
+    }finally{
+      setTimeout(()=>{window._issuingInvoice=false;},2000);
+    }
   }catch(e){
     console.error("markUnissuedNone",e);
     alert("発行なしの処理でエラー："+(e.message||e));
   }
 }
+async function cancelIssueNone(id){
+  const rec=state.history.find(h=>h.id===id);
+  if(!rec||!isIssueNone(rec))return;
+  if(!confirm("「発行なし」を取り消しますか？未発行一覧に戻ります。"))return;
+  const dateStr=historyDeliveryKey(rec);
+  state.history=state.history.filter(h=>h.id!==id);
+  if(state.unissuedNone)delete state.unissuedNone[unissuedNoneKey(rec.customer,dateStr)];
+  window._issuingInvoice=true;
+  try{
+    if(window._fsSave)await window._fsSave("pv_history",state.history);
+    try{localStorage.setItem("pv_history",JSON.stringify(state.history));}catch{}
+    save("pv_unissued_none",state.unissuedNone||{});
+    if(window._fsSave)window._fsSave("pv_unissued_none",state.unissuedNone||{}).catch(e=>console.warn("unissuedNone save",e));
+    showToast("発行なしを取り消しました");
+  }catch(e){
+    console.error("発行なし取消エラー",e);
+    state.history.unshift(rec);
+    if(dateStr){
+      if(!state.unissuedNone)state.unissuedNone={};
+      state.unissuedNone[unissuedNoneKey(rec.customer,dateStr)]=true;
+    }
+    showToast("保存に失敗しました。発行なしのままです","error");
+  }finally{
+    setTimeout(()=>{window._issuingInvoice=false;},2000);
+  }
+  render();
+}
 window.markUnissuedNone=markUnissuedNone;
+window.cancelIssueNone=cancelIssueNone;
 
 function selectCustomerFromSidebar(customerName,dateStr){
   state.issue.freeCustomer=false;
@@ -3246,7 +3334,7 @@ let _statsRankMonth=null; // null=全年, 0〜11=その月
 let _statsCharts={};
 
 function getValidHistory(){
-  return state.history.filter(h=>!h.void&&h.total>0);
+  return state.history.filter(h=>isRealInvoice(h)&&h.total>0);
 }
 
 function getAvailableYears(){
