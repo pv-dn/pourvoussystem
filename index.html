@@ -1914,7 +1914,15 @@ function invoicesToMeisaiItems(inv){
     qty:parseFloat(it.qty)||0
   }));
 }
-function buildMeisaiSheetData(customer, invoices, year, month, sheetName){
+function calcMeisaiTotalsFromInvoices(invoices){
+  let sub=0;
+  (invoices||[]).forEach(inv=>{
+    invoicesToMeisaiItems(inv).forEach(it=>{sub+=it.qty*it.price;});
+  });
+  const tax=Math.round(sub*0.1);
+  return {subtotal:sub,tax,total:sub+tax};
+}
+function buildMeisaiSheetData(customer, invoices, year, month, sheetName, extra){
   return {
     customer,
     sheetName: sanitizeSheetName(sheetName),
@@ -1925,18 +1933,31 @@ function buildMeisaiSheetData(customer, invoices, year, month, sheetName){
       invoiceNo: inv.invoiceNo||"",
       deliveryDate: inv.deliveryDate,
       items: invoicesToMeisaiItems(inv)
-    }))
+    })),
+    ...(extra||{})
   };
 }
 function collectMeisaiSheets(customer, invoices, year, month){
   const pageSize=14;
-  const pages=Math.max(1, Math.ceil((invoices||[]).length/pageSize));
+  const list=invoices||[];
+  const pages=Math.max(1, Math.ceil(list.length/pageSize));
+  const grand=calcMeisaiTotalsFromInvoices(list);
   const sheets=[];
   for(let p=0;p<pages;p++){
-    const chunk=invoices.slice(p*pageSize,(p+1)*pageSize);
+    const chunk=list.slice(p*pageSize,(p+1)*pageSize);
     const base=customer+"_"+year+"年"+month+"月";
     const sheetName=pages>1?base+"("+(p+1)+")":base;
-    sheets.push(buildMeisaiSheetData(customer, chunk, year, month, sheetName));
+    const pageTot=calcMeisaiTotalsFromInvoices(chunk);
+    sheets.push(buildMeisaiSheetData(customer, chunk, year, month, sheetName, {
+      pageIndex:p+1,
+      pageCount:pages,
+      grandSubtotal:grand.subtotal,
+      grandTax:grand.tax,
+      grandTotal:grand.total,
+      pageSubtotal:pageTot.subtotal,
+      pageTax:pageTot.tax,
+      pageTotal:pageTot.total
+    }));
   }
   return sheets;
 }
@@ -1993,6 +2014,13 @@ function setupMeisaiSheet(ws, data){
   ws.getCell("B7").value=data.closingDay===0?"末":(data.closingDay?String(data.closingDay):"末");
   ws.getCell("D7").value="日";
   ws.getCell("N7").value="ご請求金額";ws.getCell("P7").value={formula:"SUM(P5:R6)"};ws.getCell("P7").numFmt=yen;ws.getCell("P7").font={name:"游ゴシック",size:12,bold:true};
+  if((data.pageCount||1)>1){
+    ws.mergeCells("A5:G5");
+    ws.getCell("A5").value=`（全${data.pageCount}枚中 ${data.pageIndex}枚目）　全枚合計 小計 ${Math.round(data.grandSubtotal||0).toLocaleString()}　税 ${Math.round(data.grandTax||0).toLocaleString()}　ご請求 ${Math.round(data.grandTotal||0).toLocaleString()}`;
+    ws.getCell("A5").font={name:"游ゴシック",size:9,bold:true,color:{argb:"FF854F0B"}};
+    ws.getCell("A5").alignment={vertical:"middle",wrapText:true};
+    ws.getRow(5).height=22;
+  }
   ws.getCell("C9").value="納　　品　　日";ws.getCell("C9").alignment={horizontal:"center"};ws.getCell("C9").font={name:"游ゴシック",size:9,bold:true};
   ws.getCell("A10").value="品名";ws.getCell("B10").value="単価";ws.getCell("Q10").value="合計数";ws.getCell("R10").value="合計金額";
   ["A10","B10","Q10","R10"].forEach(a=>{ws.getCell(a).alignment={horizontal:"center",vertical:"middle"};ws.getCell(a).font={name:"游ゴシック",size:9,bold:true};});
@@ -2148,16 +2176,26 @@ function renderMeisaiSheetHtml(data){
   const empty=Array.from({length:emptyCount},()=>`<tr>${"<td></td>".repeat(18)}</tr>`).join("");
   const shime=data.closingDay===0?"末":(data.closingDay?String(data.closingDay):"末");
   const truncWarn=truncated?`<div style="background:#fff3e0;border:1px solid #ffb74d;color:#e65100;padding:8px 12px;margin-bottom:8px;border-radius:6px;font-size:12px">⚠ 品目が${MEISAI_MAX_ITEM_ROWS}行を超えています。超過分は表示・Excel出力に含まれません。</div>`:"";
+  const multi=(data.pageCount||1)>1;
+  const grandBox=multi?`<div style="background:#fff8ef;border:2px solid #854f0b;border-radius:8px;padding:10px 14px;margin-bottom:10px">
+      <div style="font-size:12px;color:#854f0b;font-weight:700;margin-bottom:6px">この客先の合計（全${data.pageCount}枚中 ${data.pageIndex}枚目）</div>
+      <div style="display:flex;gap:18px;flex-wrap:wrap;align-items:baseline;font-size:14px">
+        <span>小計 <strong>${yenTxt(data.grandSubtotal)}</strong></span>
+        <span>消費税 <strong>${yenTxt(data.grandTax)}</strong></span>
+        <span style="font-size:16px;font-weight:700;color:#1a1a2e">ご請求金額 ${yenTxt(data.grandTotal)}</span>
+      </div>
+      <div style="font-size:11px;color:#888;margin-top:6px">右上の金額はこのページ分です。請求時は上の「全枚合計」をご利用ください。</div>
+    </div>`:"";
   return `<div class="meisai-sheet" id="meisai-sheet">
-    ${truncWarn}
+    ${truncWarn}${grandBox}
     <div style="text-align:center;font-size:22px;font-weight:700;letter-spacing:.4em;padding:8px 0 12px;border:1px solid #222">請　求　明　細　書</div>
     <div style="display:flex;justify-content:space-between;gap:16px;margin-top:10px;align-items:flex-start">
       <div>
         <div style="font-size:16px;font-weight:700;border:1px solid #222;padding:6px 12px;min-width:280px">${data.customer||""}　<span style="font-weight:400;font-size:13px">様</span></div>
-        <div style="margin-top:8px;font-size:13px">締め日　<strong style="border:1px solid #222;padding:2px 10px;margin:0 4px">${shime}</strong>　日</div>
+        <div style="margin-top:8px;font-size:13px">締め日　<strong style="border:1px solid #222;padding:2px 10px;margin:0 4px">${shime}</strong>　日${multi?`　<span style="color:#854f0b;font-weight:600">（${data.pageIndex}/${data.pageCount}枚）</span>`:""}</div>
       </div>
       <div style="font-size:14px;text-align:right">
-        <div style="margin-bottom:10px">${data.year} 年　${data.month} 月分</div>
+        <div style="margin-bottom:10px">${data.year} 年　${data.month} 月分${multi?`<div style="font-size:11px;color:#888;margin-top:2px">このページ分</div>`:""}</div>
         <table style="width:auto;margin-left:auto"><tbody>
           <tr><td style="text-align:left">小計金額</td><td style="text-align:right;min-width:110px">${yenTxt(sub)}</td></tr>
           <tr><td style="text-align:left">消費税</td><td style="text-align:right">${yenTxt(tax)}</td></tr>
@@ -2234,8 +2272,13 @@ function renderMeisaiModal(){
   const esc=s=>String(s??"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/"/g,"&quot;");
   const listHtml=mv.sheets.map((s,i)=>{
     const label=esc(s.customer||s.sheetName||"（客先不明）");
-    const meta=esc((s.year&&s.month)?`${s.year}年${s.month}月`:(s.sheetName||""));
-    const pageNote=s.sheetName&&String(s.sheetName).includes("(")?` <span style="color:#aaa">${esc(s.sheetName.replace(/^.*(\([^)]+\))$/,"$1"))}</span>`:"";
+    const multi=(s.pageCount||1)>1;
+    const pageNote=multi?` <span style="color:#854f0b">(${s.pageIndex}/${s.pageCount})</span>`:"";
+    const metaParts=[];
+    if(s.year&&s.month)metaParts.push(`${s.year}年${s.month}月`);
+    if(multi&&s.grandTotal!=null)metaParts.push(`全枚合計 ${yenTxt(s.grandTotal)}`);
+    else if(s.pageTotal!=null)metaParts.push(yenTxt(s.pageTotal));
+    const meta=esc(metaParts.join("　"));
     return`<button type="button" class="meisai-cust-item${i===mv.idx?" active":""}" onclick="jumpMeisaiView(${i})">
       <div class="meisai-cust-item-name">${label}${pageNote}</div>
       <div class="meisai-cust-item-meta">${meta}</div>
