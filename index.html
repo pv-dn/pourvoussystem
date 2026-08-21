@@ -11,7 +11,7 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
 <script type="module">
 import { initializeApp, deleteApp } from "https://www.gstatic.com/firebasejs/12.13.0/firebase-app.js";
-import { getFirestore, doc, setDoc, getDoc, onSnapshot, collection, addDoc, query, orderBy, limit, getDocs } from "https://www.gstatic.com/firebasejs/12.13.0/firebase-firestore.js";
+import { getFirestore, doc, setDoc, getDoc, onSnapshot, collection, addDoc, query, orderBy, limit, getDocs, runTransaction } from "https://www.gstatic.com/firebasejs/12.13.0/firebase-firestore.js";
 import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged, createUserWithEmailAndPassword, updatePassword } from "https://www.gstatic.com/firebasejs/12.13.0/firebase-auth.js";
 
 const firebaseConfig = {
@@ -136,6 +136,37 @@ window._fsSave = async function(k, v) {
     console.warn("Firestore save error", e);
     throw e;
   }
+};
+
+// 履歴は複数PCで同時発行しても消えないよう、読み取り→IDマージ→書き込みをトランザクションで行う
+window._fsSaveHistoryMerged = async function(localHistory, opts) {
+  opts = opts || {};
+  const deletedIds = new Set(opts.deletedIds || []);
+  const ref = doc(db, "pvdata", "history");
+  const merged = await runTransaction(db, async (transaction) => {
+    const snap = await transaction.get(ref);
+    let remote = [];
+    if (snap.exists()) {
+      try {
+        const raw = snap.data().value;
+        remote = typeof raw === "string" ? JSON.parse(raw) : (raw || []);
+      } catch { remote = []; }
+    }
+    if (!Array.isArray(remote)) remote = [];
+    const map = new Map();
+    remote.forEach(h => {
+      if (h && h.id != null && !deletedIds.has(h.id)) map.set(h.id, h);
+    });
+    (localHistory || []).forEach(h => {
+      if (!h || h.id == null || deletedIds.has(h.id)) return;
+      map.set(h.id, h);
+    });
+    const result = [...map.values()].sort((a, b) => new Date(b.issueDate || 0) - new Date(a.issueDate || 0));
+    transaction.set(ref, { value: JSON.stringify(result) });
+    return result;
+  });
+  try { localStorage.setItem("pv_history", JSON.stringify(merged)); } catch {}
+  return merged;
 };
 
 window._fsLoad = async function(k) {
@@ -403,6 +434,18 @@ function save(k,v){
     window._fsSave(k,v).catch(e=>console.error("Firestore save error",k,e));
   }
 }
+/** 発行履歴をクラウドとマージして保存（他PCの同時発行を消さない） */
+async function saveHistoryMerged(localHistory, opts){
+  if(window._fsSaveHistoryMerged){
+    const merged=await window._fsSaveHistoryMerged(localHistory,opts||{});
+    state.history=merged;
+    return merged;
+  }
+  state.history=localHistory||[];
+  try{localStorage.setItem("pv_history",JSON.stringify(state.history));}catch{}
+  if(window._fsSave)await window._fsSave("pv_history",state.history);
+  return state.history;
+}
 function saveAll(){save("pv_customers",state.customers);save("pv_products",state.products);save("pv_prices",state.prices);save("pv_history",state.history);save("pv_min",state.minG);save("pv_invoice_counters",state.invoiceCounters);save("pv_closing_days",state.closingDays);save("pv_skip_holidays",state.skipHolidays);saveCycles();}
 
 const DEFAULT_QTY_TIERS=()=>[{min:1,max:null,price:0}];
@@ -553,7 +596,7 @@ function applyShakoCustomerNameFix(){
   save("pv_closing_days",state.closingDays);
   save("pv_skip_holidays",state.skipHolidays||{});
   save("pv_prices",state.prices);
-  save("pv_history",state.history);
+  save("pv_prices",state.prices);
   save("pv_unissued_none",state.unissuedNone||{});
   saveCycles();
   if(window._fsSave){
@@ -562,9 +605,10 @@ function applyShakoCustomerNameFix(){
     window._fsSave("pv_closing_days",state.closingDays).catch(()=>{});
     window._fsSave("pv_skip_holidays",state.skipHolidays||{}).catch(()=>{});
     window._fsSave("pv_prices",state.prices).catch(()=>{});
-    window._fsSave("pv_history",state.history).catch(()=>{});
     window._fsSave("pv_unissued_none",state.unissuedNone||{}).catch(()=>{});
   }
+  window._issuingInvoice=true;
+  saveHistoryMerged(state.history).catch(()=>{}).finally(()=>setTimeout(()=>{window._issuingInvoice=false;},2000));
 }
 
 function fmtDate(d){if(!d)return"";const dt=d instanceof Date?d:new Date(d);if(isNaN(dt))return"";return`${dt.getFullYear()}/${String(dt.getMonth()+1).padStart(2,"0")}/${String(dt.getDate()).padStart(2,"0")}`;}
@@ -954,8 +998,7 @@ async function issueInvoice(){
   state.history.unshift(inv);
   showToast("保存中...");
   try{
-    if(window._fsSave)await window._fsSave("pv_history",state.history);
-    try{localStorage.setItem("pv_history",JSON.stringify(state.history));}catch{}
+    await saveHistoryMerged(state.history);
     const invPrefix=inv.invoiceNo.split("-")[0];
     const invNum=parseInt((inv.invoiceNo.split("-P")[1])||0);
     if(!state.invoiceCounters[invPrefix]||state.invoiceCounters[invPrefix]<invNum){
@@ -963,11 +1006,10 @@ async function issueInvoice(){
       save("pv_invoice_counters",state.invoiceCounters);
     }
     const threeMonthsAgo=new Date();threeMonthsAgo.setMonth(threeMonthsAgo.getMonth()-3);
-    const pruned=state.history.filter(h=>new Date(h.issueDate)>=threeMonthsAgo);
-    if(pruned.length!==state.history.length){
-      state.history=pruned;
-      if(window._fsSave)await window._fsSave("pv_history",state.history);
-      try{localStorage.setItem("pv_history",JSON.stringify(state.history));}catch{}
+    const gone=state.history.filter(h=>new Date(h.issueDate)<threeMonthsAgo).map(h=>h.id);
+    if(gone.length){
+      state.history=state.history.filter(h=>new Date(h.issueDate)>=threeMonthsAgo);
+      await saveHistoryMerged(state.history,{deletedIds:gone});
     }
     try{
       const {addDoc,collection}=await import("https://www.gstatic.com/firebasejs/12.13.0/firebase-firestore.js");
@@ -1065,10 +1107,10 @@ function renderHistoryTab(){
     <div style="font-size:15px;font-weight:600;color:#1a1a2e;margin-bottom:8px">📋 請求明細書を確認・書き出す</div>
     <div style="font-size:12px;color:#555;margin-bottom:12px;line-height:1.6">印刷やExcelなしでも、画面上で請求明細書の内容を確認できます。「👁 ○○を見る」を押すと、客先ごとの明細が開きます。</div>
     <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px">
-      <button onclick="openMeisaiView('pending')" style="background:#fff;border:1px solid #854f0b;color:#854f0b;border-radius:8px;padding:8px 14px;cursor:pointer;font-size:13px;font-weight:600;white-space:nowrap">👁 未反映を見る</button>
+      <button onclick="openMeisaiView('pending')" style="background:#fff;border:1px solid #854f0b;color:#854f0b;border-radius:8px;padding:8px 14px;cursor:pointer;font-size:13px;font-weight:600;white-space:nowrap">👁 未反映の請求月を見る</button>
       ${billingExportBtnHtml()}
     </div>
-    <div style="font-size:12px;color:#555;margin-bottom:12px;line-height:1.6">1日の終わりに「📄 未反映→請求明細Excel」を押すと、未反映の伝票が請求月のシートにまとまってダウンロードされます。押し忘れ分も含まれます。</div>
+    <div style="font-size:12px;color:#555;margin-bottom:12px;line-height:1.6">未反映がある請求月の明細書を出します。同じ月に反映済みがある場合も、月全体が載ります（正式な請求明細のため）。「反映済み」になるのは未反映分だけです。</div>
     <div style="display:flex;align-items:flex-end;gap:10px;flex-wrap:wrap;margin-bottom:10px">
       <div><label class="lbl">今日（${todayStr}）納品分 ${todayCount}件（再出力）</label>
         <button onclick="openMeisaiView('today')" style="display:block;background:#fff;border:1px solid #1565c0;color:#1565c0;padding:10px 22px;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600;white-space:nowrap;margin-top:4px">👁 今日の分を見る</button>
@@ -1194,10 +1236,16 @@ async function saveHistoryEdit(){
     return updated;
   });
   window._issuingInvoice=true;
-  try{ await window._fsSave("pv_history",state.history); }catch(e){ console.error("履歴修正保存エラー",e); showToast("⚠️ 保存に失敗しました","error"); }
-  try{ localStorage.setItem("pv_history",JSON.stringify(state.history)); }catch{}
-  setTimeout(()=>{ window._issuingInvoice=false; },2000);
-  state.editingHistory=null;showToast("修正を保存しました");render();
+  try{
+    await saveHistoryMerged(state.history);
+    state.editingHistory=null;showToast("修正を保存しました");
+  }catch(e){
+    console.error("履歴修正保存エラー",e);
+    showToast("⚠️ 保存に失敗しました","error");
+  }finally{
+    setTimeout(()=>{window._issuingInvoice=false;},2000);
+  }
+  render();
 }
 
 function reprintInvoice(id){const inv=state.history.find(h=>h.id===id);if(!inv||isIssueNone(inv))return;state.printInvoice=inv;renderPrintModal(true);}
@@ -1253,8 +1301,7 @@ async function toggleVoid(id){
   if(prevVoid&&!h.void)delete h.billingExportedAt;
   window._issuingInvoice=true;
   try{
-    if(window._fsSave)await window._fsSave("pv_history",state.history);
-    try{localStorage.setItem("pv_history",JSON.stringify(state.history));}catch{}
+    await saveHistoryMerged(state.history);
     showToast(h.void?"没にしました":(prevExportedAt?"没を解除しました（未反映に戻しました）":"没を解除しました"));
   }catch(e){
     console.error("没フラグ保存エラー",e);
@@ -1271,18 +1318,33 @@ async function toggleVoid(id){
 async function deleteHistory(id){
   if(!confirm("この履歴を削除しますか？"))return;
   const target=state.history.find(h=>h.id===id);
+  const backup=state.history.slice();
   state.history=state.history.filter(h=>h.id!==id);
+  let noneKey=null;
   if(target&&isIssueNone(target)){
     const dateStr=historyDeliveryKey(target);
-    if(state.unissuedNone)delete state.unissuedNone[unissuedNoneKey(target.customer,dateStr)];
-    save("pv_unissued_none",state.unissuedNone||{});
-    if(window._fsSave)window._fsSave("pv_unissued_none",state.unissuedNone||{}).catch(e=>console.warn("unissuedNone save",e));
+    noneKey=unissuedNoneKey(target.customer,dateStr);
+    if(state.unissuedNone)delete state.unissuedNone[noneKey];
   }
   window._issuingInvoice=true;
-  try{ await window._fsSave("pv_history",state.history); }catch(e){ console.error("履歴削除保存エラー",e); }
-  try{ localStorage.setItem("pv_history",JSON.stringify(state.history)); }catch{}
-  setTimeout(()=>{ window._issuingInvoice=false; },2000);
-  showToast("削除しました");render();
+  try{
+    await saveHistoryMerged(state.history,{deletedIds:[id]});
+    if(noneKey){
+      save("pv_unissued_none",state.unissuedNone||{});
+    }
+    showToast("削除しました");
+  }catch(e){
+    console.error("履歴削除保存エラー",e);
+    state.history=backup;
+    if(noneKey&&target){
+      if(!state.unissuedNone)state.unissuedNone={};
+      state.unissuedNone[noneKey]=true;
+    }
+    showToast("保存に失敗しました","error");
+  }finally{
+    setTimeout(()=>{window._issuingInvoice=false;},2000);
+  }
+  render();
 }
 
 // --- Customer Tab ---
@@ -1569,8 +1631,11 @@ function saveCustomerDetail(){
   state.customerDetail=null;
   save("pv_customers",state.customers);save("pv_min",state.minG);save("pv_closing_days",state.closingDays);save("pv_skip_holidays",state.skipHolidays);save("pv_prices",state.prices);saveCycles();
   if(renamed){
-    save("pv_history",state.history);
     save("pv_unissued_none",state.unissuedNone||{});
+    window._issuingInvoice=true;
+    saveHistoryMerged(state.history).catch(e=>console.error("客先リネーム履歴保存",e)).finally(()=>{
+      setTimeout(()=>{window._issuingInvoice=false;},2000);
+    });
   }
   if(window._fsSave){
     window._fsSave("pv_customers",state.customers).catch(e=>console.error(e));
@@ -1579,7 +1644,6 @@ function saveCustomerDetail(){
     window._fsSave("pv_skip_holidays",state.skipHolidays).catch(e=>console.error(e));
     window._fsSave("pv_prices",state.prices).catch(e=>console.error(e));
     if(renamed){
-      window._fsSave("pv_history",state.history).catch(e=>console.error(e));
       window._fsSave("pv_unissued_none",state.unissuedNone||{}).catch(e=>console.error(e));
     }
   }
@@ -1605,13 +1669,14 @@ function saveCustomer(id){
   state.editingCustomer=null;
   save("pv_customers",state.customers);save("pv_min",state.minG);
   if(ec.originalName!==ec.name){
-    save("pv_history",state.history);save("pv_unissued_none",state.unissuedNone||{});save("pv_prices",state.prices);save("pv_closing_days",state.closingDays);save("pv_skip_holidays",state.skipHolidays||{});saveCycles();
+    save("pv_unissued_none",state.unissuedNone||{});save("pv_prices",state.prices);save("pv_closing_days",state.closingDays);save("pv_skip_holidays",state.skipHolidays||{});saveCycles();
+    window._issuingInvoice=true;
+    saveHistoryMerged(state.history).catch(e=>console.error(e)).finally(()=>setTimeout(()=>{window._issuingInvoice=false;},2000));
   }
   if(window._fsSave){
     window._fsSave("pv_customers",state.customers).catch(e=>console.error(e));
     window._fsSave("pv_min",state.minG).catch(e=>console.error(e));
     if(ec.originalName!==ec.name){
-      window._fsSave("pv_history",state.history).catch(e=>console.error(e));
       window._fsSave("pv_unissued_none",state.unissuedNone||{}).catch(e=>console.error(e));
       window._fsSave("pv_prices",state.prices).catch(e=>console.error(e));
       window._fsSave("pv_closing_days",state.closingDays).catch(e=>console.error(e));
@@ -1801,8 +1866,7 @@ async function undoLastBillingExport(){
   batch.forEach(h=>{delete h.billingExportedAt;});
   window._issuingInvoice=true;
   try{
-    if(window._fsSave)await window._fsSave("pv_history",state.history);
-    try{localStorage.setItem("pv_history",JSON.stringify(state.history));}catch{}
+    await saveHistoryMerged(state.history);
     showToast(batch.length+"件を未反映に戻しました");
   }catch(e){
     console.error("未反映へ戻す保存エラー",e);
@@ -2171,7 +2235,7 @@ function renderMeisaiModal(){
 async function exportUnexportedExcel(){
   const toMark=pendingBillingInvoices();
   if(!toMark.length){showToast("未反映の伝票がありません","error");return;}
-  if(!confirm("未反映 "+toMark.length+"件 を請求明細に反映してExcel出力します。\n誤って押した場合は、あとから「反映を取り消す」で未反映に戻せます。"))return;
+  if(!confirm("未反映 "+toMark.length+"件 を請求明細に反映してExcel出力します。\n\n※ 明細書には、同じ請求月の反映済み伝票も含めて月全体が載ります（正式な請求明細のため）。\n※ 「反映済み」になるのは今回の未反映分だけです。\n\n誤って押した場合は、あとから「反映を取り消す」で未反映に戻せます。"))return;
   const sheetMap=new Map();
   toMark.forEach(h=>{
     const cd=resolveClosingDay(h.customer);
@@ -2199,8 +2263,7 @@ async function exportUnexportedExcel(){
   toMark.forEach(h=>{h.billingExportedAt=now;});
   window._issuingInvoice=true;
   try{
-    if(window._fsSave)await window._fsSave("pv_history",state.history);
-    try{localStorage.setItem("pv_history",JSON.stringify(state.history));}catch{}
+    await saveHistoryMerged(state.history);
     showToast(`${fname} をダウンロードしました（${sheets.length}シート）`);
   }catch(e){
     console.error("反映済み保存エラー",e);
@@ -2417,8 +2480,8 @@ function renderGuideTab(){
     ${step(3,"<strong>客先を選択</strong>　「伝票発行」タブで客先を選びます。納品日がサイクルから自動で入ります。")}
     ${step(4,"<strong>数量を入力</strong>　品目の数量を入力します。Enterで次の行へ進めます。合計は自動計算されます。")}
     ${step(5,"<strong>納品書を発行・印刷</strong>　「納品書を発行する」→「印刷（B5横）」で印刷します。中央の破線で半分に切り、お客様控えと社内控えに分けます。")}
-    ${step(6,"<strong>請求明細書を確認・出力</strong>　「👁 未反映を見る／今日の分を見る／この期間を見る」で画面確認できます（印刷不要）。問題なければ「📄 未反映→請求明細Excel」でダウンロードします。")}
-    <div class="guide-note">Excelの取り込み操作は不要です。「未反映: N件」と出ている間は、まだ明細書に載せていない伝票があります。押し忘れても、後日同じボタンでまとめて出せます。誤って反映した場合は「↩ 反映を取り消す」で未反映に戻せます。</div>
+    ${step(6,"<strong>請求明細書を確認・出力</strong>　「👁 未反映の請求月を見る／今日の分を見る／この期間を見る」で画面確認できます（印刷不要）。問題なければ「📄 未反映→請求明細Excel」でダウンロードします。")}
+    <div class="guide-note">明細書には同じ請求月の反映済みも含めて月全体が載ります（正式な請求明細のため）。「反映済み」になるのは未反映分だけです。誤って反映した場合は「↩ 反映を取り消す」で戻せます。</div>
     <div class="guide-warn">使い終わったら右上の「ログアウト」を必ず押してください。</div>
   `)}
 
@@ -2812,8 +2875,7 @@ async function markUnissuedNone(customer,dateStr){
     render();
     window._issuingInvoice=true;
     try{
-      if(window._fsSave)await window._fsSave("pv_history",state.history);
-      try{localStorage.setItem("pv_history",JSON.stringify(state.history));}catch{}
+      await saveHistoryMerged(state.history);
       save("pv_unissued_none",state.unissuedNone);
       showToast("発行なしを履歴に残しました");
     }catch(e){
@@ -2839,10 +2901,8 @@ async function cancelIssueNone(id){
   if(state.unissuedNone)delete state.unissuedNone[unissuedNoneKey(rec.customer,dateStr)];
   window._issuingInvoice=true;
   try{
-    if(window._fsSave)await window._fsSave("pv_history",state.history);
-    try{localStorage.setItem("pv_history",JSON.stringify(state.history));}catch{}
+    await saveHistoryMerged(state.history,{deletedIds:[id]});
     save("pv_unissued_none",state.unissuedNone||{});
-    if(window._fsSave)window._fsSave("pv_unissued_none",state.unissuedNone||{}).catch(e=>console.warn("unissuedNone save",e));
     showToast("発行なしを取り消しました");
   }catch(e){
     console.error("発行なし取消エラー",e);
