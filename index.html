@@ -745,8 +745,8 @@ function renderIssueTab(){
   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;gap:12px;flex-wrap:wrap">
     <h2 style="font-size:20px;font-weight:600;color:#1a1a2e;margin:0">納品書発行</h2>
     <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:flex-end">
+      <button onclick="openMeisaiView('pending')" style="background:#fff;border:1px solid #854f0b;color:#854f0b;border-radius:8px;padding:8px 14px;cursor:pointer;font-size:13px;font-weight:600;white-space:nowrap">👁 請求明細を見る</button>
       ${billingExportBtnHtml()}
-      <button onclick="openMeisaiView('pending')" style="background:#fff;border:1px solid #854f0b;color:#854f0b;border-radius:8px;padding:8px 14px;cursor:pointer;font-size:13px;font-weight:600;white-space:nowrap">👁 未反映を見る</button>
       <div style="font-size:12px;color:#999;text-align:right;line-height:1.4;white-space:nowrap">🖨️ 印刷設定：<span style="color:#c17a00;font-weight:600">B5・横向き・余白なし</span></div>
     </div>
   </div>
@@ -1041,25 +1041,26 @@ function renderHistoryTab(){
   </h2>
   <div id="invoice-log-section" style="display:none;margin-bottom:20px"></div>
   <div class="card" style="background:#f0f7ff;border:1px solid #90caf9">
-    <div style="font-size:15px;font-weight:600;color:#1a1a2e;margin-bottom:8px">📋 請求明細書をExcelで書き出す</div>
+    <div style="font-size:15px;font-weight:600;color:#1a1a2e;margin-bottom:8px">📋 請求明細書を確認・書き出す</div>
+    <div style="font-size:12px;color:#555;margin-bottom:12px;line-height:1.6">印刷やExcelなしでも、画面上で請求明細書の内容を確認できます。「👁 ○○を見る」を押すと、客先ごとの明細が開きます。</div>
     <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px">
-      ${billingExportBtnHtml()}
       <button onclick="openMeisaiView('pending')" style="background:#fff;border:1px solid #854f0b;color:#854f0b;border-radius:8px;padding:8px 14px;cursor:pointer;font-size:13px;font-weight:600;white-space:nowrap">👁 未反映を見る</button>
+      ${billingExportBtnHtml()}
     </div>
-    <div style="font-size:12px;color:#555;margin-bottom:12px;line-height:1.6">1日の終わりに押すと、未反映の伝票が請求月のシートにまとまってダウンロードされます。Excelの取り込み操作は不要です。押し忘れ分も含まれます。</div>
+    <div style="font-size:12px;color:#555;margin-bottom:12px;line-height:1.6">1日の終わりに「📄 未反映→請求明細Excel」を押すと、未反映の伝票が請求月のシートにまとまってダウンロードされます。押し忘れ分も含まれます。</div>
     <div style="display:flex;align-items:flex-end;gap:10px;flex-wrap:wrap;margin-bottom:10px">
       <div><label class="lbl">今日（${todayStr}）納品分 ${todayCount}件（再出力）</label>
-        <button onclick="exportTodayExcel()" style="display:block;background:#1565c0;color:#fff;border:none;padding:10px 22px;border-radius:8px;cursor:pointer;font-size:14px;font-weight:600;white-space:nowrap;margin-top:4px">📥 今日の分をExcel書き出し</button>
-        <button onclick="openMeisaiView('today')" style="display:block;background:#fff;border:1px solid #1565c0;color:#1565c0;padding:8px 22px;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600;white-space:nowrap;margin-top:6px">👁 今日の分を見る</button>
+        <button onclick="openMeisaiView('today')" style="display:block;background:#fff;border:1px solid #1565c0;color:#1565c0;padding:10px 22px;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600;white-space:nowrap;margin-top:4px">👁 今日の分を見る</button>
+        <button onclick="exportTodayExcel()" style="display:block;background:#1565c0;color:#fff;border:none;padding:8px 22px;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600;white-space:nowrap;margin-top:6px">📥 今日の分をExcel書き出し</button>
       </div>
     </div>
     <div style="border-top:1px solid #bbdefb;padding-top:12px">
-      <div style="font-size:13px;font-weight:600;color:#1a1a2e;margin-bottom:8px">締め日ごとに書き出す</div>
+      <div style="font-size:13px;font-weight:600;color:#1a1a2e;margin-bottom:8px">締め日ごとに確認・書き出す</div>
       <div style="display:flex;align-items:flex-end;gap:10px;flex-wrap:wrap">
         <div><label class="lbl">客先</label><select id="export-cust" style="padding:7px 10px;border:1px solid #90caf9;border-radius:6px;font-size:13px;min-width:220px"><option value="">（全客先）</option>${closingCustOpts}</select></div>
         <div><label class="lbl">基準年月</label><input type="month" id="export-month" style="padding:7px 10px;border:1px solid #90caf9;border-radius:6px;font-size:13px" value="${new Date().getFullYear()+"-"+String(new Date().getMonth()+1).padStart(2,"0")}"></div>
-        <button onclick="exportClosingExcel()" style="background:#0277bd;color:#fff;border:none;padding:10px 18px;border-radius:6px;cursor:pointer;font-size:13px;font-weight:600;white-space:nowrap">📥 締め日期間で書き出し</button>
         <button onclick="openMeisaiView('closing')" style="background:#fff;border:1px solid #0277bd;color:#0277bd;padding:10px 18px;border-radius:6px;cursor:pointer;font-size:13px;font-weight:600;white-space:nowrap">👁 この期間を見る</button>
+        <button onclick="exportClosingExcel()" style="background:#0277bd;color:#fff;border:none;padding:10px 18px;border-radius:6px;cursor:pointer;font-size:13px;font-weight:600;white-space:nowrap">📥 締め日期間で書き出し</button>
       </div>
       <div style="font-size:12px;color:#777;margin-top:6px">※ 締め日が設定されていない客先は対象外です。客先管理タブで設定できます。</div>
     </div>
@@ -2075,14 +2076,14 @@ function renderMeisaiModal(){
   modal.classList.remove("hidden");
   modal.innerHTML=`<div class="modal">
     <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px">
-      <div style="font-size:16px;font-weight:700;color:#1a1a2e">請求明細書</div>
+      <div style="font-size:16px;font-weight:700;color:#1a1a2e">請求明細書（画面確認）</div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
         <button onclick="shiftMeisaiView(-1)" ${n<2?"disabled":""} style="padding:6px 12px;border:1px solid #ddd;background:#fff;border-radius:6px;cursor:pointer">◀ 前へ</button>
         <span style="font-size:13px;color:#555">${mv.idx+1} / ${n}　${data.sheetName||""}</span>
         <button onclick="shiftMeisaiView(1)" ${n<2?"disabled":""} style="padding:6px 12px;border:1px solid #ddd;background:#fff;border-radius:6px;cursor:pointer">次へ ▶</button>
-        <button onclick="printOpenMeisai()" style="padding:6px 12px;border:none;background:#1a1a2e;color:#e8d5b7;border-radius:6px;cursor:pointer;font-weight:600">印刷</button>
-        <button onclick="downloadOpenMeisai()" style="padding:6px 12px;border:none;background:#0277bd;color:#fff;border-radius:6px;cursor:pointer;font-weight:600">Excel出力</button>
         <button onclick="closeMeisaiView()" style="padding:6px 12px;border:1px solid #ddd;background:#f5f3ef;border-radius:6px;cursor:pointer">閉じる</button>
+        <button onclick="downloadOpenMeisai()" style="padding:6px 12px;border:none;background:#0277bd;color:#fff;border-radius:6px;cursor:pointer;font-weight:600">Excel出力</button>
+        <button onclick="printOpenMeisai()" style="padding:6px 12px;border:none;background:#1a1a2e;color:#e8d5b7;border-radius:6px;cursor:pointer;font-weight:600">印刷</button>
       </div>
     </div>
     <div style="overflow:auto;max-height:calc(90vh - 90px)">${renderMeisaiSheetHtml(data)}</div>
@@ -2339,7 +2340,7 @@ function renderGuideTab(){
     ${step(3,"<strong>客先を選択</strong>　「伝票発行」タブで客先を選びます。納品日がサイクルから自動で入ります。")}
     ${step(4,"<strong>数量を入力</strong>　品目の数量を入力します。Enterで次の行へ進めます。合計は自動計算されます。")}
     ${step(5,"<strong>納品書を発行・印刷</strong>　「納品書を発行する」→「印刷（B5横）」で印刷します。中央の破線で半分に切り、お客様控えと社内控えに分けます。")}
-    ${step(6,"<strong>1日の終わりに請求明細書を確認・出力</strong>　「👁 未反映を見る」で画面確認し、「📄 未反映→請求明細Excel」でダウンロードします。")}
+    ${step(6,"<strong>請求明細書を確認・出力</strong>　「👁 未反映を見る／今日の分を見る／この期間を見る」で画面確認できます（印刷不要）。問題なければ「📄 未反映→請求明細Excel」でダウンロードします。")}
     <div class="guide-note">Excelの取り込み操作は不要です。「未反映: N件」と出ている間は、まだ明細書に載せていない伝票があります。押し忘れても、後日同じボタンでまとめて出せます。誤って反映した場合は「↩ 反映を取り消す」で未反映に戻せます。</div>
     <div class="guide-warn">使い終わったら右上の「ログアウト」を必ず押してください。</div>
   `)}
