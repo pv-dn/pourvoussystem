@@ -262,9 +262,17 @@ td{padding:9px 8px;border-bottom:.5px solid #f0ede8;font-size:13px;overflow:hidd
 .toast{position:fixed;top:70px;right:20px;z-index:9999;padding:10px 20px;border-radius:8px;font-size:14px;color:#fff;box-shadow:0 4px 12px rgba(0,0,0,.2)}
 .overlay{position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:1000;display:flex;align-items:center;justify-content:center}
 .modal{background:#fff;border-radius:12px;padding:24px;max-width:920px;width:95%;max-height:90vh;overflow-y:auto}
-.meisai-overlay .modal{max-width:1180px;padding:16px 18px 20px}
+.meisai-overlay .modal{max-width:1280px;padding:16px 18px 20px}
 .meisai-sheet{font-family:"Noto Sans JP",sans-serif;color:#111;background:#fff;min-width:860px}
 .meisai-sheet table{border-collapse:collapse;table-layout:fixed;width:100%}
+.meisai-cust-list{width:240px;flex-shrink:0;border:1px solid #e8e4de;border-radius:10px;background:#faf9f6;overflow:hidden;display:flex;flex-direction:column;max-height:calc(90vh - 100px)}
+.meisai-cust-list-head{padding:10px 12px;font-size:13px;font-weight:700;color:#1a1a2e;border-bottom:1px solid #e8e4de;background:#fff}
+.meisai-cust-list-body{overflow-y:auto;padding:6px}
+.meisai-cust-item{display:block;width:100%;text-align:left;border:1px solid transparent;background:#fff;border-radius:8px;padding:8px 10px;margin-bottom:4px;cursor:pointer;font-family:inherit}
+.meisai-cust-item:hover{border-color:#c8b89a;background:#fffdf8}
+.meisai-cust-item.active{border-color:#854f0b;background:#fff8ef;box-shadow:0 0 0 1px #854f0b33}
+.meisai-cust-item-name{font-size:12px;font-weight:600;color:#1a1a2e;line-height:1.35;word-break:break-all}
+.meisai-cust-item-meta{font-size:11px;color:#888;margin-top:3px}
 .meisai-sheet th,.meisai-sheet td{border:1px solid #222;padding:3px 4px;font-size:11px;white-space:nowrap}
 .hidden{display:none}
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
@@ -331,6 +339,8 @@ td{padding:9px 8px;border-bottom:.5px solid #f0ede8;font-size:13px;overflow:hidd
 @media(max-width:960px){
   .app-layout{flex-direction:column;padding:0 16px}
   .unissued-sidebar{width:100%;position:relative;top:auto;max-height:none}
+  .meisai-overlay .modal > div:last-child{flex-direction:column}
+  .meisai-cust-list{width:100%;max-height:180px}
 }
 
 </style>
@@ -2179,6 +2189,13 @@ function shiftMeisaiView(d){
   mv.idx=(mv.idx+d+mv.sheets.length)%mv.sheets.length;
   renderMeisaiModal();
 }
+function jumpMeisaiView(idx){
+  const mv=state.meisaiView;if(!mv||!mv.sheets.length)return;
+  const i=parseInt(idx,10);
+  if(isNaN(i)||i<0||i>=mv.sheets.length)return;
+  mv.idx=i;
+  renderMeisaiModal();
+}
 function closeMeisaiView(){
   state.meisaiView=null;
   const modal=document.getElementById("meisai-modal");
@@ -2214,21 +2231,40 @@ function renderMeisaiModal(){
   if(!mv||!mv.sheets.length){modal.classList.add("hidden");modal.innerHTML="";return;}
   const data=mv.sheets[mv.idx];
   const n=mv.sheets.length;
+  const esc=s=>String(s??"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/"/g,"&quot;");
+  const listHtml=mv.sheets.map((s,i)=>{
+    const label=esc(s.customer||s.sheetName||"（客先不明）");
+    const meta=esc((s.year&&s.month)?`${s.year}年${s.month}月`:(s.sheetName||""));
+    const pageNote=s.sheetName&&String(s.sheetName).includes("(")?` <span style="color:#aaa">${esc(s.sheetName.replace(/^.*(\([^)]+\))$/,"$1"))}</span>`:"";
+    return`<button type="button" class="meisai-cust-item${i===mv.idx?" active":""}" onclick="jumpMeisaiView(${i})">
+      <div class="meisai-cust-item-name">${label}${pageNote}</div>
+      <div class="meisai-cust-item-meta">${meta}</div>
+    </button>`;
+  }).join("");
   modal.classList.remove("hidden");
   modal.innerHTML=`<div class="modal">
     <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px">
       <div style="font-size:16px;font-weight:700;color:#1a1a2e">請求明細書（画面確認）</div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
         <button onclick="shiftMeisaiView(-1)" ${n<2?"disabled":""} style="padding:6px 12px;border:1px solid #ddd;background:#fff;border-radius:6px;cursor:pointer">◀ 前へ</button>
-        <span style="font-size:13px;color:#555">${mv.idx+1} / ${n}　${data.sheetName||""}</span>
+        <span style="font-size:13px;color:#555">${mv.idx+1} / ${n}</span>
         <button onclick="shiftMeisaiView(1)" ${n<2?"disabled":""} style="padding:6px 12px;border:1px solid #ddd;background:#fff;border-radius:6px;cursor:pointer">次へ ▶</button>
         <button onclick="closeMeisaiView()" style="padding:6px 12px;border:1px solid #ddd;background:#f5f3ef;border-radius:6px;cursor:pointer">閉じる</button>
         <button onclick="downloadOpenMeisai()" style="padding:6px 12px;border:none;background:#0277bd;color:#fff;border-radius:6px;cursor:pointer;font-weight:600">Excel出力</button>
         <button onclick="printOpenMeisai()" style="padding:6px 12px;border:none;background:#1a1a2e;color:#e8d5b7;border-radius:6px;cursor:pointer;font-weight:600">印刷</button>
       </div>
     </div>
-    <div style="overflow:auto;max-height:calc(90vh - 90px)">${renderMeisaiSheetHtml(data)}</div>
+    <div style="display:flex;gap:14px;align-items:stretch;min-height:0">
+      <aside class="meisai-cust-list" aria-label="客先一覧">
+        <div class="meisai-cust-list-head">客先一覧（${n}）</div>
+        <div class="meisai-cust-list-body" id="meisai-cust-list-body">${listHtml}</div>
+      </aside>
+      <div style="flex:1;min-width:0;overflow:auto;max-height:calc(90vh - 100px)">${renderMeisaiSheetHtml(data)}</div>
+    </div>
   </div>`;
+  const listBody=document.getElementById("meisai-cust-list-body");
+  const active=listBody&&listBody.querySelector(".meisai-cust-item.active");
+  if(active)active.scrollIntoView({block:"nearest"});
 }
 
 // 未反映の伝票を請求月シートにまとめて書き出し（プリームスと同じ運用）
