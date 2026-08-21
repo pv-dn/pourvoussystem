@@ -132,7 +132,10 @@ window._fsSave = async function(k, v) {
   if (!fsKey) return;
   try {
     await setDoc(doc(db, "pvdata", fsKey), { value: JSON.stringify(v) });
-  } catch(e) { console.warn("Firestore save error", e); }
+  } catch(e) {
+    console.warn("Firestore save error", e);
+    throw e;
+  }
 };
 
 window._fsLoad = async function(k) {
@@ -516,6 +519,18 @@ function isDeliveryDay(name,d){
   return true;
 }
 const SHAKO_YOKOHAMA_CUSTOMER="写光レンタル販売株式会社　横浜センター";
+function migrateUnissuedNoneKeys(oldName,newName){
+  if(!state.unissuedNone||!oldName||!newName||oldName===newName)return;
+  const next={};
+  Object.keys(state.unissuedNone).forEach(k=>{
+    const tab=k.indexOf("\t");
+    const cust=tab>=0?k.slice(0,tab):k;
+    const rest=tab>=0?k.slice(tab):"";
+    if(cust===oldName)next[newName+rest]=state.unissuedNone[k];
+    else next[k]=state.unissuedNone[k];
+  });
+  state.unissuedNone=next;
+}
 function renameCustomerData(oldName,newName){
   if(!oldName||!newName||oldName===newName)return;
   state.customers=state.customers.map(c=>c.name===oldName?{...c,name:newName}:c);
@@ -525,6 +540,7 @@ function renameCustomerData(oldName,newName){
   if(state.skipHolidays&&state.skipHolidays[oldName]!==undefined){state.skipHolidays[newName]=state.skipHolidays[oldName];delete state.skipHolidays[oldName];}
   state.prices=state.prices.map(p=>p.customer===oldName?{...p,customer:newName}:p);
   state.history=state.history.map(h=>h.customer===oldName?{...h,customer:newName}:h);
+  migrateUnissuedNoneKeys(oldName,newName);
 }
 function applyShakoCustomerNameFix(){
   const c=state.customers.find(x=>x.id==="032")||state.customers.find(x=>{const n=normName(x.name);return n.includes("写光")&&n.includes("横浜");});
@@ -538,6 +554,7 @@ function applyShakoCustomerNameFix(){
   save("pv_skip_holidays",state.skipHolidays||{});
   save("pv_prices",state.prices);
   save("pv_history",state.history);
+  save("pv_unissued_none",state.unissuedNone||{});
   saveCycles();
   if(window._fsSave){
     window._fsSave("pv_customers",state.customers).catch(()=>{});
@@ -546,6 +563,7 @@ function applyShakoCustomerNameFix(){
     window._fsSave("pv_skip_holidays",state.skipHolidays||{}).catch(()=>{});
     window._fsSave("pv_prices",state.prices).catch(()=>{});
     window._fsSave("pv_history",state.history).catch(()=>{});
+    window._fsSave("pv_unissued_none",state.unissuedNone||{}).catch(()=>{});
   }
 }
 
@@ -920,6 +938,7 @@ function removeCustomItem(i){
 }
 function toggleCustom(v){state.issue.useCustom=v;render();}
 async function issueInvoice(){
+  if(window._issuingBusy){showToast("発行処理中です","error");return;}
   if(!state.issue.customer&&!state.issue.freeCustomer){showToast("客先を選択してください","error");return;}
   if(state.issue.freeCustomer&&!state.issue.customer.trim()){showToast("客先名を入力してください","error");return;}
   if(isKanagawaRodoCustomer(state.issue.customer)&&!state.issue.deliverySite){showToast("納品先を選択してください","error");return;}
@@ -927,54 +946,56 @@ async function issueInvoice(){
   if(!items.some(i=>!i.isDeliverySite&&i.qty&&parseFloat(i.qty)>0)){showToast("数量を入力してください","error");return;}
   const sub=getSubtotal();const mg=state.minG[state.issue.customer]||0;const total=Math.max(sub,mg);
   const invNoKey=state.issue.freeCustomer?"__FREE__":state.issue.customer;
-  const inv={id:Date.now(),invoiceNo:nextInvoiceNo(invNoKey),customer:state.issue.customer,deliveryDate:state.issue.deliveryDate?fromInput(state.issue.deliveryDate):new Date(),issueDate:new Date(),items,subtotal:sub,minGuarantee:mg,total,memo:state.issue.memo||"",deliverySite:state.issue.deliverySite||"",issuedBy:window._userShortId||"",issuedByName:window._userDisplayName||""};
+  let id=Date.now();
+  while(state.history.some(h=>h.id===id))id++;
+  const inv={id,invoiceNo:nextInvoiceNo(invNoKey),customer:state.issue.customer,deliveryDate:state.issue.deliveryDate?fromInput(state.issue.deliveryDate):new Date(),issueDate:new Date(),items,subtotal:sub,minGuarantee:mg,total,memo:state.issue.memo||"",deliverySite:state.issue.deliverySite||"",issuedBy:window._userShortId||"",issuedByName:window._userDisplayName||""};
+  window._issuingBusy=true;
+  window._issuingInvoice=true;
   state.history.unshift(inv);
-  // 発行処理中フラグをON（onSnapshotによる上書きを防ぐ・カウンター保存より前に立てる）
-  window._issuingInvoice = true;
-  // 発行番号をcountersに保存（履歴削除後も番号を引き継ぐため）
-  const invPrefix=inv.invoiceNo.split("-")[0];
-  const invNum=parseInt((inv.invoiceNo.split("-P")[1])||0);
-  if(!state.invoiceCounters[invPrefix]||state.invoiceCounters[invPrefix]<invNum){
-    state.invoiceCounters[invPrefix]=invNum;
-    save("pv_invoice_counters",state.invoiceCounters);
-    if(window._fsSave)window._fsSave("pv_invoice_counters",state.invoiceCounters);
-  }
   showToast("保存中...");
-  let saveFailed = false;
   try{
-    await window._fsSave("pv_history", state.history);
+    if(window._fsSave)await window._fsSave("pv_history",state.history);
+    try{localStorage.setItem("pv_history",JSON.stringify(state.history));}catch{}
+    const invPrefix=inv.invoiceNo.split("-")[0];
+    const invNum=parseInt((inv.invoiceNo.split("-P")[1])||0);
+    if(!state.invoiceCounters[invPrefix]||state.invoiceCounters[invPrefix]<invNum){
+      state.invoiceCounters[invPrefix]=invNum;
+      save("pv_invoice_counters",state.invoiceCounters);
+    }
+    const threeMonthsAgo=new Date();threeMonthsAgo.setMonth(threeMonthsAgo.getMonth()-3);
+    const pruned=state.history.filter(h=>new Date(h.issueDate)>=threeMonthsAgo);
+    if(pruned.length!==state.history.length){
+      state.history=pruned;
+      if(window._fsSave)await window._fsSave("pv_history",state.history);
+      try{localStorage.setItem("pv_history",JSON.stringify(state.history));}catch{}
+    }
+    try{
+      const {addDoc,collection}=await import("https://www.gstatic.com/firebasejs/12.13.0/firebase-firestore.js");
+      await addDoc(collection(window._db,"pvInvoiceLogs"),{
+        invoiceNo:inv.invoiceNo,
+        customer:inv.customer,
+        total:inv.total,
+        issuedBy:inv.issuedBy||"",
+        issuedByName:inv.issuedByName||"",
+        deliveryDate:inv.deliveryDate instanceof Date?inv.deliveryDate.toISOString():inv.deliveryDate,
+        issuedAt:new Date().toISOString()
+      });
+    }catch(e){console.warn("発行ログ保存エラー",e);}
+    state.issue.freeCustomer=false;state.issue.memo="";
+    state.issue.items=state.issue.items.map(i=>({...i,qty:""}));
+    state.issue.customItems=[{name:"",qty:"",price:""}];
+    state.issue.customPanelOpen=false;
+    state.printInvoice=inv;render();renderPrintModal(true);
   }catch(e){
     console.error("履歴保存エラー",e);
-    saveFailed = true;
+    state.history=state.history.filter(h=>h.id!==inv.id);
+    try{localStorage.setItem("pv_history",JSON.stringify(state.history));}catch{}
     showToast("⚠️ 履歴の保存に失敗しました。ネットワークを確認してください。","error");
+    render();
+  }finally{
+    window._issuingBusy=false;
+    setTimeout(()=>{window._issuingInvoice=false;},2000);
   }
-  try{localStorage.setItem("pv_history",JSON.stringify(state.history));}catch{}
-  // 3ヶ月より古い履歴を保存完了後に削除（保存失敗時はスキップ）
-  if(!saveFailed){
-    const threeMonthsAgo=new Date();threeMonthsAgo.setMonth(threeMonthsAgo.getMonth()-3);
-    state.history=state.history.filter(h=>new Date(h.issueDate)>=threeMonthsAgo);
-  }
-  // フラグをOFF（少し遅延させてonSnapshotの発火を確実に避ける）
-  setTimeout(()=>{ window._issuingInvoice = false; }, 2000);
-  // 発行ログを別コレクションに保存（履歴が消えても残る）
-  try{
-    const {addDoc,collection}=await import("https://www.gstatic.com/firebasejs/12.13.0/firebase-firestore.js");
-    await addDoc(collection(window._db,"pvInvoiceLogs"),{
-      invoiceNo:inv.invoiceNo,
-      customer:inv.customer,
-      total:inv.total,
-      issuedBy:inv.issuedBy||"",
-      issuedByName:inv.issuedByName||"",
-      deliveryDate:inv.deliveryDate instanceof Date?inv.deliveryDate.toISOString():inv.deliveryDate,
-      issuedAt:new Date().toISOString()
-    });
-  }catch(e){console.warn("発行ログ保存エラー",e);}
-  state.issue.freeCustomer=false;state.issue.memo="";
-  // 数量をリセット（前回の入力が残らないように）
-  state.issue.items=state.issue.items.map(i=>({...i,qty:""}));
-  state.issue.customItems=[{name:"",qty:"",price:""}];
-  state.issue.customPanelOpen=false;
-  state.printInvoice=inv;render();renderPrintModal(true);
 }
 
 // --- History Tab ---
@@ -1225,13 +1246,26 @@ async function toggleVoid(id){
   if(!h||isIssueNone(h))return;
   const msg=h.void?"この伝票の没を解除しますか？":"この伝票を没にしますか？";
   if(!confirm(msg))return;
+  const prevVoid=!!h.void;
+  const prevExportedAt=h.billingExportedAt;
   h.void=!h.void;
+  // 復活したら請求明細の未反映に戻す
+  if(prevVoid&&!h.void)delete h.billingExportedAt;
   window._issuingInvoice=true;
-  try{ await window._fsSave("pv_history",state.history); }catch(e){ console.error("没フラグ保存エラー",e); }
-  try{ localStorage.setItem("pv_history",JSON.stringify(state.history)); }catch{}
-  setTimeout(()=>{ window._issuingInvoice=false; },2000);
+  try{
+    if(window._fsSave)await window._fsSave("pv_history",state.history);
+    try{localStorage.setItem("pv_history",JSON.stringify(state.history));}catch{}
+    showToast(h.void?"没にしました":(prevExportedAt?"没を解除しました（未反映に戻しました）":"没を解除しました"));
+  }catch(e){
+    console.error("没フラグ保存エラー",e);
+    h.void=prevVoid;
+    if(prevExportedAt)h.billingExportedAt=prevExportedAt;
+    else delete h.billingExportedAt;
+    showToast("保存に失敗しました","error");
+  }finally{
+    setTimeout(()=>{window._issuingInvoice=false;},2000);
+  }
   render();
-  showToast(h.void?"没にしました":"没を解除しました");
 }
 
 async function deleteHistory(id){
@@ -1508,8 +1542,9 @@ function removeDetailPrice(i){
 function saveCustomerDetail(){
   const d=state.customerDetail;
   if(!state.skipHolidays)state.skipHolidays={};
+  const renamed=d.originalName!==d.name;
   state.customers=state.customers.map(c=>c.id===d.id?{...c,name:d.name}:c);
-  if(d.originalName!==d.name){
+  if(renamed){
     state.minG[d.name]=state.minG[d.originalName]||0;
     delete state.minG[d.originalName];
     DELIVERY_CYCLES[d.name]=DELIVERY_CYCLES[d.originalName];
@@ -1517,6 +1552,8 @@ function saveCustomerDetail(){
     if(state.closingDays[d.originalName]!==undefined){state.closingDays[d.name]=state.closingDays[d.originalName];delete state.closingDays[d.originalName];}
     if(state.skipHolidays[d.originalName]!==undefined){state.skipHolidays[d.name]=state.skipHolidays[d.originalName];delete state.skipHolidays[d.originalName];}
     state.prices=state.prices.map(p=>p.customer===d.originalName?{...p,customer:d.name}:p);
+    state.history=state.history.map(h=>h.customer===d.originalName?{...h,customer:d.name}:h);
+    migrateUnissuedNoneKeys(d.originalName,d.name);
   }
   state.minG[d.name]=d.mg;
   DELIVERY_CYCLES[d.name]=d.cycle;
@@ -1530,18 +1567,58 @@ function saveCustomerDetail(){
     return row;
   }));
   state.customerDetail=null;
-  save("pv_customers",state.customers);save("pv_min",state.minG);save("pv_closing_days",state.closingDays);save("pv_skip_holidays",state.skipHolidays);saveCycles();if(window._fsSave){window._fsSave("pv_customers",state.customers);window._fsSave("pv_min",state.minG);window._fsSave("pv_closing_days",state.closingDays);window._fsSave("pv_skip_holidays",state.skipHolidays);window._fsSave("pv_prices",state.prices);}
+  save("pv_customers",state.customers);save("pv_min",state.minG);save("pv_closing_days",state.closingDays);save("pv_skip_holidays",state.skipHolidays);save("pv_prices",state.prices);saveCycles();
+  if(renamed){
+    save("pv_history",state.history);
+    save("pv_unissued_none",state.unissuedNone||{});
+  }
+  if(window._fsSave){
+    window._fsSave("pv_customers",state.customers).catch(e=>console.error(e));
+    window._fsSave("pv_min",state.minG).catch(e=>console.error(e));
+    window._fsSave("pv_closing_days",state.closingDays).catch(e=>console.error(e));
+    window._fsSave("pv_skip_holidays",state.skipHolidays).catch(e=>console.error(e));
+    window._fsSave("pv_prices",state.prices).catch(e=>console.error(e));
+    if(renamed){
+      window._fsSave("pv_history",state.history).catch(e=>console.error(e));
+      window._fsSave("pv_unissued_none",state.unissuedNone||{}).catch(e=>console.error(e));
+    }
+  }
   if(window._saveDataEditLog)window._saveDataEditLog("客先",`${d.name} を保存（サイクル:${d.cycle} 最低保証:${d.mg} 締め日:${d.closingDay} 祝日:${d.skipHoliday?"飛ばす":"納品あり"}）`);
-  showToast("保存しました");render();
+  showToast(renamed?"客先名を変更し、履歴も更新しました":"保存しました");
+  render();
 }
 
 function editCustomer(id){const c=state.customers.find(x=>x.id===id);state.editingCustomer={id,name:c.name,originalName:c.name,mg:state.minG[c.name]||0};render();}
 function saveCustomer(id){
   const ec=state.editingCustomer;
   state.customers=state.customers.map(c=>c.id===id?{...c,name:ec.name}:c);
-  if(ec.originalName!==ec.name){state.minG[ec.name]=state.minG[ec.originalName]||0;delete state.minG[ec.originalName];}
+  if(ec.originalName!==ec.name){
+    state.minG[ec.name]=state.minG[ec.originalName]||0;delete state.minG[ec.originalName];
+    state.history=state.history.map(h=>h.customer===ec.originalName?{...h,customer:ec.name}:h);
+    migrateUnissuedNoneKeys(ec.originalName,ec.name);
+    if(DELIVERY_CYCLES[ec.originalName]!==undefined){DELIVERY_CYCLES[ec.name]=DELIVERY_CYCLES[ec.originalName];delete DELIVERY_CYCLES[ec.originalName];}
+    if(state.closingDays[ec.originalName]!==undefined){state.closingDays[ec.name]=state.closingDays[ec.originalName];delete state.closingDays[ec.originalName];}
+    if(state.skipHolidays&&state.skipHolidays[ec.originalName]!==undefined){state.skipHolidays[ec.name]=state.skipHolidays[ec.originalName];delete state.skipHolidays[ec.originalName];}
+    state.prices=state.prices.map(p=>p.customer===ec.originalName?{...p,customer:ec.name}:p);
+  }
   if(ec.mg!==undefined)state.minG[ec.name]=ec.mg;
-  state.editingCustomer=null;save("pv_customers",state.customers);save("pv_min",state.minG);if(window._fsSave){window._fsSave("pv_customers",state.customers);window._fsSave("pv_min",state.minG);}showToast("更新しました");render();
+  state.editingCustomer=null;
+  save("pv_customers",state.customers);save("pv_min",state.minG);
+  if(ec.originalName!==ec.name){
+    save("pv_history",state.history);save("pv_unissued_none",state.unissuedNone||{});save("pv_prices",state.prices);save("pv_closing_days",state.closingDays);save("pv_skip_holidays",state.skipHolidays||{});saveCycles();
+  }
+  if(window._fsSave){
+    window._fsSave("pv_customers",state.customers).catch(e=>console.error(e));
+    window._fsSave("pv_min",state.minG).catch(e=>console.error(e));
+    if(ec.originalName!==ec.name){
+      window._fsSave("pv_history",state.history).catch(e=>console.error(e));
+      window._fsSave("pv_unissued_none",state.unissuedNone||{}).catch(e=>console.error(e));
+      window._fsSave("pv_prices",state.prices).catch(e=>console.error(e));
+      window._fsSave("pv_closing_days",state.closingDays).catch(e=>console.error(e));
+      window._fsSave("pv_skip_holidays",state.skipHolidays||{}).catch(e=>console.error(e));
+    }
+  }
+  showToast("更新しました");render();
 }
 function deleteCustomer(id){if(!confirm("削除しますか？"))return;const dc=state.customers.find(c=>c.id===id);state.customers=state.customers.filter(c=>c.id!==id);save("pv_customers",state.customers);if(window._fsSave)window._fsSave("pv_customers",state.customers);if(window._saveDataEditLog&&dc)window._saveDataEditLog("客先",`${dc.name} を削除`);showToast("削除しました");render();}
 function addCustomer(){
