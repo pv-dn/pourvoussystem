@@ -206,7 +206,9 @@ watchKeys.forEach(fsKey => {
         else if (localKey === "pv_invoice_counters") st.invoiceCounters = val;
         else if (localKey === "pv_closing_days") st.closingDays = val;
         else if (localKey === "pv_min") st.minG = val;
-        else if (localKey === "pv_cycles") mergeCycles(val);
+        else if (localKey === "pv_cycles") {
+          if (!window._savingCycles && typeof window.replaceCycles === "function") window.replaceCycles(val);
+        }
         else if (localKey === "pv_skip_holidays") st.skipHolidays = val;
         else if (localKey === "pv_unissued_none") st.unissuedNone = val;
         else if (localKey === "pv_data_edit_logs") st.dataEditLogs = Array.isArray(val)?val:[];
@@ -227,8 +229,8 @@ window._startFirestoreSync = async function() {
     if (val !== null) {
       try { localStorage.setItem(localKey, JSON.stringify(val)); } catch{}
       // DELIVERY_CYCLESも初回ロード時に反映
-      if(localKey === "pv_cycles" && typeof DELIVERY_CYCLES !== "undefined") {
-        try { mergeCycles(val); } catch{}
+      if(localKey === "pv_cycles" && typeof window.replaceCycles === "function") {
+        try { window.replaceCycles(val); } catch{}
       }
     }
   }));
@@ -500,9 +502,17 @@ let state={
   priceSort:"code",    // "code" or "name"
 };
 
-// DELIVERY_CYCLESをlocalStorageから復元（保存済みがあれば上書き）
-(function(){try{const saved=localStorage.getItem("pv_cycles");if(saved){const obj=JSON.parse(saved);mergeCycles(obj);}}catch{}})();
-function saveCycles(){try{localStorage.setItem("pv_cycles",JSON.stringify(DELIVERY_CYCLES));}catch{}if(window._fsSave)window._fsSave("pv_cycles",DELIVERY_CYCLES).catch(e=>console.error("Firestore cycles save error",e));}
+// DELIVERY_CYCLESをlocalStorageから復元（保存済みがあれば置き換え）
+(function(){try{const saved=localStorage.getItem("pv_cycles");if(saved){const obj=JSON.parse(saved);replaceCycles(obj);}}catch{}})();
+function saveCycles(){
+  try{localStorage.setItem("pv_cycles",JSON.stringify(DELIVERY_CYCLES));}catch{}
+  if(window._fsSave){
+    window._savingCycles=true;
+    window._fsSave("pv_cycles",DELIVERY_CYCLES)
+      .catch(e=>console.error("Firestore cycles save error",e))
+      .finally(()=>{setTimeout(()=>{window._savingCycles=false;},2500);});
+  }
+}
 function load(k,fb){try{const r=localStorage.getItem(k);return r?JSON.parse(r):fb;}catch{return fb;}}
 function save(k,v){
   try{localStorage.setItem(k,JSON.stringify(v));}catch(e){console.warn("localStorage save error",k,e);}
@@ -546,10 +556,30 @@ function formatTierLabel(rec){
 }
 function findPriceRecord(customer,code){return state.prices.find(p=>p.customer===customer&&p.code===code);}
 function normName(s){return(s||"").replace(/\s+/g,"");}
-function mergeCycles(src){
+function mergeCycles(src){applyCycleEntries(src);}
+function applyCycleEntries(src){
   if(!src||typeof src!=="object")return;
-  for(const k in src){const v=src[k];if(typeof v==="string"?v.trim():v)DELIVERY_CYCLES[k]=v;}
+  for(const k of Object.keys(src)){
+    const v=src[k];
+    if(typeof v==="string"){
+      const t=v.trim();
+      if(t)DELIVERY_CYCLES[k]=t;
+      else delete DELIVERY_CYCLES[k];
+    }else if(v){
+      DELIVERY_CYCLES[k]=v;
+    }
+  }
 }
+/** Firestore / localStorage のサイクル一覧で置き換える（空文字も反映） */
+function replaceCycles(src){
+  if(!src||typeof src!=="object")return;
+  const keys=Object.keys(src);
+  if(!keys.length)return;
+  Object.keys(DELIVERY_CYCLES).forEach(k=>delete DELIVERY_CYCLES[k]);
+  applyCycleEntries(src);
+}
+window.replaceCycles=replaceCycles;
+window.applyCycleEntries=applyCycleEntries;
 function getCycleForCustomer(name){
   if(DELIVERY_CYCLES[name])return DELIVERY_CYCLES[name];
   const n=normName(name);
@@ -836,7 +866,7 @@ function renderIssueTab(){
   const total=getTotal();
   const custOpts=state.customers.map(c=>`<option value="${c.name}"${iss.customer===c.name?"selected":""}>${c.name}</option>`).join("");
   const invNo=(iss.customer||iss.freeCustomer)?nextInvoiceNo(iss.freeCustomer?"__FREE__":iss.customer):"—";
-  const cycle=iss.customer?DELIVERY_CYCLES[iss.customer]:"";
+  const cycle=iss.customer?getCycleForCustomer(iss.customer):"";
   const isRodo=isKanagawaRodoCustomer(iss.customer);
   const rodoSiteOpts=KANAGAWA_RODO_SITES.map(s=>`<option value="${s}"${iss.deliverySite===s?" selected":""}>${s}</option>`).join("");
 
@@ -1430,7 +1460,7 @@ function renderCustomerTab(){
   const filtered=state.customers.filter(c=>!search||c.name.includes(search)||c.id.includes(search));
   const rows=filtered.map(c=>{
     const cd=state.closingDays[c.name];const cdLabel=cd===0?"月末〆":cd?cd+"日〆":"—";
-    return`<tr><td style="width:70px"><span class="code-badge">${c.id}</span></td><td><a href="#" onclick="openCustomerDetail('${c.id}');return false;" style="color:#1a73e8;text-decoration:none;font-weight:500">${c.name}</a></td><td style="width:120px">${state.minG[c.name]>0?"¥"+(state.minG[c.name]).toLocaleString():"—"}</td><td style="width:120px">${(DELIVERY_CYCLES[c.name]||"—")}${skipsHolidays(c.name)?'<div style="font-size:10px;color:#b45309">祝日飛ばす</div>':""}</td><td style="width:90px">${cdLabel}</td><td style="width:160px"><div style="display:flex;gap:6px"><button class="btn-edit" onclick="openCustomerDetail('${c.id}')">詳細編集</button><button class="btn-danger" onclick="deleteCustomer('${c.id}')">削除</button></div></td></tr>`;
+    return`<tr><td style="width:70px"><span class="code-badge">${c.id}</span></td><td><a href="#" onclick="openCustomerDetail('${c.id}');return false;" style="color:#1a73e8;text-decoration:none;font-weight:500">${c.name}</a></td><td style="width:120px">${state.minG[c.name]>0?"¥"+(state.minG[c.name]).toLocaleString():"—"}</td><td style="width:120px">${(getCycleForCustomer(c.name)||"—")}${skipsHolidays(c.name)?'<div style="font-size:10px;color:#b45309">祝日飛ばす</div>':""}</td><td style="width:90px">${cdLabel}</td><td style="width:160px"><div style="display:flex;gap:6px"><button class="btn-edit" onclick="openCustomerDetail('${c.id}')">詳細編集</button><button class="btn-danger" onclick="deleteCustomer('${c.id}')">削除</button></div></td></tr>`;
   }).join("");
   if(state.showAddCustomer&&!state.newCustomer.id){const ids=state.customers.map(c=>parseInt(c.id)||0);state.newCustomer.id=String(Math.max(...ids)+1).padStart(3,"0");}
   const DAY_BTN_NEW=["月","火","水","木","金","土","日"];
@@ -1456,7 +1486,7 @@ function openCustomerDetail(id){
   state.customerDetail={
     id,name:c.name,originalName:c.name,
     mg:state.minG[c.name]||0,
-    cycle:DELIVERY_CYCLES[c.name]||"",
+    cycle:getCycleForCustomer(c.name)||"",
     closingDay:state.closingDays[c.name]!==undefined?state.closingDays[c.name]:"",
     skipHoliday:skipsHolidays(c.name),
     prices:custPrices.map(p=>({...p,qtyTiers:p.qtyTiers?p.qtyTiers.map(t=>({...t})):undefined})),
@@ -1694,7 +1724,8 @@ function saveCustomerDetail(){
     migrateUnissuedNoneKeys(d.originalName,d.name);
   }
   state.minG[d.name]=d.mg;
-  DELIVERY_CYCLES[d.name]=d.cycle;
+  if(d.cycle&&String(d.cycle).trim())DELIVERY_CYCLES[d.name]=String(d.cycle).trim();
+  else delete DELIVERY_CYCLES[d.name];
   if(d.closingDay!=="")state.closingDays[d.name]=d.closingDay;
   if(d.skipHoliday)state.skipHolidays[d.name]=true;
   else delete state.skipHolidays[d.name];
@@ -3902,7 +3933,7 @@ window._appStart = async function() {
     const savedCycles=localStorage.getItem("pv_cycles");
     if(savedCycles){
       const obj=JSON.parse(savedCycles);
-      if(obj&&typeof obj==="object"&&Object.keys(obj).length>0)mergeCycles(obj);
+      if(obj&&typeof obj==="object"&&Object.keys(obj).length>0)replaceCycles(obj);
     }
   }catch{}
   try{applyShakoCustomerNameFix();}catch(e){console.warn("applyShakoCustomerNameFix",e);}
