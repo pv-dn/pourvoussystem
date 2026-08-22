@@ -368,6 +368,7 @@ td{padding:9px 8px;border-bottom:.5px solid #f0ede8;font-size:13px;overflow:hidd
 
   <nav class="nav" id="nav"></nav>
   <div style="display:flex;align-items:center;gap:10px;margin-left:auto;padding-left:16px;border-left:1px solid #444">
+    <button type="button" onclick="openUpdateInfo()" title="更新情報" style="background:transparent;color:#e8d5b7;border:1px solid #555;padding:6px 12px;border-radius:6px;cursor:pointer;font-size:12px;white-space:nowrap">更新情報</button>
     <div style="display:flex;flex-direction:column;align-items:flex-end;gap:1px">
       <span id="header-user" style="font-size:15px;font-weight:700;color:#FFD700;white-space:nowrap"></span>
       <span style="font-size:10px;color:#f87171;white-space:nowrap">⚠️ 終了前にログアウト</span>
@@ -375,6 +376,7 @@ td{padding:9px 8px;border-bottom:.5px solid #f0ede8;font-size:13px;overflow:hidd
     <button onclick="doLogout()" style="background:#e8d5b7;color:#1a1a2e;border:none;padding:8px 18px;border-radius:8px;cursor:pointer;font-size:14px;font-weight:700;white-space:nowrap">ログアウト</button>
   </div>
 </div>
+<div id="update-info-modal" class="overlay hidden" onclick="if(event.target===this)closeUpdateInfo()"></div>
 <div id="toast" class="toast hidden"></div>
 <div class="app-layout" id="app-layout">
   <aside id="unissued-sidebar" class="unissued-sidebar" aria-label="未発行一覧"></aside>
@@ -387,6 +389,40 @@ td{padding:9px 8px;border-bottom:.5px solid #f0ede8;font-size:13px;overflow:hidd
 const COMPANY={name:"株式会社プゥル・ヴー",division:"ホワイト事業部",zip:"〒252-0025",address:"神奈川県大和市代官2-12-2",tel:"TEL046-267-9228",fax:"FAX046-201-2116"};
 const TABS=["伝票発行","発行履歴","📊 売上統計","📂 データ","バックアップ","運用方法","👤 ユーザー管理"];
 const DAY_NAMES=["日","月","火","水","木","金","土"];
+/** ヘッダー「更新情報」用。新しいものを先頭に追加する */
+const APP_UPDATES=[
+  {date:"2026-08",title:"請求明細書の複数枚合計",items:["複数枚に分かれた請求明細書でも、各ページの合計はそのまま残します","ご請求金額の下に「TOTAL（全N枚）」を表示します（画面・Excel・印刷）"]},
+  {date:"2026-08",title:"明細書の画面確認を使いやすく",items:["客先一覧からすぐに切り替えできます","印刷しなくても明細書を前面で確認できます"]},
+  {date:"2026-08",title:"複数PCでの履歴保存を強化",items:["発行履歴はトランザクションでマージ保存し、別PCの発行が消えにくくなりました"]},
+  {date:"2026-08",title:"発行・保存まわりの安定化",items:["保存失敗を検知して、失敗時は印刷や反映を止めます","発行ボタンの連打を防止します","客先名を変更すると履歴・発行なしも追従します","「没」から復活すると請求は未反映に戻ります"]},
+  {date:"2026-08",title:"発行なしを履歴に残す",items:["未発行カードの「発行なし」が発行履歴に残り、取り消し・削除できます"]},
+  {date:"2026-08",title:"請求明細書まわり",items:["未反映の請求月をワンクリックでExcel出力できます","反映の取り消しができます","宛名は客先名表示に統一しました"]},
+];
+function openUpdateInfo(){
+  const el=document.getElementById("update-info-modal");
+  if(!el)return;
+  const body=APP_UPDATES.map(u=>`
+    <div style="margin-bottom:18px;padding-bottom:16px;border-bottom:1px solid #eee">
+      <div style="font-size:11px;color:#888;margin-bottom:4px">${u.date}</div>
+      <div style="font-size:15px;font-weight:700;color:#1a1a2e;margin-bottom:8px">${u.title}</div>
+      <ul style="margin:0;padding-left:18px;color:#444;font-size:13px;line-height:1.7">${u.items.map(i=>`<li>${i}</li>`).join("")}</ul>
+    </div>`).join("");
+  el.innerHTML=`<div style="background:#fff;border-radius:12px;width:min(520px,92vw);max-height:80vh;overflow:auto;padding:24px 28px;box-shadow:0 8px 32px rgba(0,0,0,.25)" onclick="event.stopPropagation()">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+      <h2 style="font-size:18px;font-weight:700;color:#1a1a2e;margin:0">更新情報</h2>
+      <button type="button" onclick="closeUpdateInfo()" style="background:#eee;border:none;border-radius:6px;padding:6px 14px;cursor:pointer;font-size:13px">閉じる</button>
+    </div>
+    <p style="font-size:12px;color:#888;margin:0 0 16px">最近の主な変更です。反映後は Ctrl+Shift+R で再読み込みしてください。</p>
+    ${body}
+  </div>`;
+  el.classList.remove("hidden");
+}
+function closeUpdateInfo(){
+  const el=document.getElementById("update-info-modal");
+  if(el){el.classList.add("hidden");el.innerHTML="";}
+}
+window.openUpdateInfo=openUpdateInfo;
+window.closeUpdateInfo=closeUpdateInfo;
 const DELIVERY_CYCLES={"㈱サイゼリヤ　神奈川工場":"月火水木金土","㈱サイゼリヤ　神奈川工場　ピザ工場":"月火水木金土","株式会社　大鶴":"火金","中島製作所":"火金","秀和エンジニアリング":"火金","相鉄企業株式会社":"金","新記総業㈱　甲子園２":"月木","協和クリーニング":"火金","㈱タニカワ":"木","ひなた山内科クリニック":"月金","すずらんクリニック":"金","湘南台薬局":"水","鹿島建設㈱　海老名中新田造成工事事務所":"火金","大林組　上瀬谷園芸博工事事務所":"月","大林組　上瀬谷ＰＣ１ＪＶ工事事務所":"月","大林組　国際園芸博ＰＶ工事事務所":"月","カフェホテル":"水土","誠品貿易株式会社":"水"};
 const INIT_CUSTOMERS=[{id:"001",name:"㈱サイゼリヤ　神奈川工場"},{id:"002",name:"㈱サイゼリヤ　神奈川工場　ピザ工場"},{id:"003",name:"株式会社　大鶴"},{id:"004",name:"中島製作所"},{id:"005",name:"秀和エンジニアリング"},{id:"006",name:"相鉄企業株式会社"},{id:"007",name:"新記総業㈱　甲子園２"},{id:"008",name:"協和クリーニング"},{id:"009",name:"㈱タニカワ"},{id:"010",name:"ひなた山内科クリニック"},{id:"011",name:"すずらんクリニック"},{id:"012",name:"湘南台薬局"},{id:"013",name:"鹿島建設㈱　海老名中新田造成工事事務所"},{id:"014",name:"大林組　上瀬谷園芸博工事事務所"},{id:"015",name:"大林組　上瀬谷ＰＣ１ＪＶ工事事務所"},{id:"016",name:"大林組　国際園芸博ＰＶ工事事務所"},{id:"017",name:"カフェホテル"},{id:"018",name:"誠品貿易株式会社"},{id:"019",name:"アークホテル大和"},{id:"020",name:"神奈川労働局"}];
 const INIT_PRODUCTS=[{code:"W001",name:"Yシャツ"},{code:"W002",name:"Yシャツ　立体"},{code:"W003",name:"スーツ　上下"},{code:"W004",name:"スーツ　上"},{code:"W005",name:"スーツ　下"},{code:"W006",name:"ポロシャツ"},{code:"W007",name:"パーカー"},{code:"W008",name:"フェイスタオル・バスタオルセット"},{code:"W009",name:"バスタオル"},{code:"W010",name:"フェイスタオル"},{code:"W011",name:"バスマット"},{code:"W012",name:"水着　男性"},{code:"W013",name:"水着　女性"},{code:"W014",name:"半白衣"},{code:"W015",name:"白衣ズボン"},{code:"W016",name:"長白衣"},{code:"W017",name:"帽子"},{code:"W018",name:"インナーキャップ"},{code:"W019",name:"ズボン"},{code:"W020",name:"ジャンパー"},{code:"W021",name:"手袋"},{code:"W022",name:"エプロン"},{code:"W023",name:"ダウンジャンパー"},{code:"W024",name:"シーツ"},{code:"W025",name:"包布"},{code:"W026",name:"浴衣"},{code:"W027",name:"白衣　上"},{code:"W028",name:"白衣　下"},{code:"W029",name:"カーディガン"},{code:"W030",name:"ガウン"},{code:"W031",name:"ピロケース"},{code:"W032",name:"ゴム付きシーツ"},{code:"W033",name:"バスローブ（ひも付）"},{code:"W034",name:"ハンドタオル"},{code:"W035",name:"作業着　上"},{code:"W036",name:"作業着　下"},{code:"W037",name:"作業シャツ"},{code:"W038",name:"防寒ジャンパー"},{code:"W039",name:"ベンチコート"},{code:"W040",name:"キュロット"},{code:"W041",name:"スラックス"},{code:"W042",name:"ブラウス"},{code:"W043",name:"Ｔシャツ"},{code:"W044",name:"ひざ掛け"},{code:"W045",name:"キャップ"},{code:"W046",name:"ウェア　Tシャツ"},{code:"W047",name:"ウェア　短パン"},{code:"W048",name:"ベスト"},{code:"W049",name:"診察衣"},{code:"W050",name:"作業コート"},{code:"W051",name:"作業ジャケット"},{code:"W052",name:"作業ズボン"},{code:"W053",name:"作業防寒ブルゾン"},{code:"W054",name:"集配料"},{code:"W055",name:"ブランケット"}];
