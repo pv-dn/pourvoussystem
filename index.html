@@ -267,7 +267,7 @@ td{padding:9px 8px;border-bottom:.5px solid #f0ede8;font-size:13px;overflow:hidd
 .modal{background:#fff;border-radius:12px;padding:24px;max-width:920px;width:95%;max-height:90vh;overflow-y:auto}
 .meisai-overlay .modal{max-width:1280px;padding:16px 18px 20px}
 .meisai-sheet{font-family:"Noto Sans JP",sans-serif;color:#111;background:#fff;min-width:860px}
-.meisai-sheet table{border-collapse:collapse;table-layout:fixed;width:100%}
+.meisai-table-wrap table{border-collapse:collapse;table-layout:fixed;width:100%}
 .meisai-title{text-align:center;font-size:22px;font-weight:700;letter-spacing:.4em;padding:8px 0 12px;border:1px solid #222}
 .meisai-head{display:flex;justify-content:space-between;gap:16px;margin-top:10px;align-items:flex-start}
 .meisai-customer{font-size:16px;font-weight:700;border:1px solid #222;padding:6px 12px;min-width:280px}
@@ -275,15 +275,16 @@ td{padding:9px 8px;border-bottom:.5px solid #f0ede8;font-size:13px;overflow:hidd
 .meisai-shime{margin-top:8px;font-size:13px}
 .meisai-shime strong{border:1px solid #222;padding:2px 10px;margin:0 4px}
 .meisai-page-note{color:#854f0b;font-weight:600}
-.meisai-amounts{font-size:14px;text-align:right}
+.meisai-amounts{font-size:14px;text-align:right;flex:0 0 auto}
 .meisai-month{margin-bottom:10px}
-.meisai-amt-table{width:auto;margin-left:auto}
-.meisai-amt-table td:first-child{text-align:left}
-.meisai-amt-table td:last-child{text-align:right;min-width:110px}
+.meisai-amt-table{width:auto;margin-left:auto;border-collapse:collapse;table-layout:auto}
+.meisai-amt-table td{border:1px solid #222;padding:3px 8px;white-space:nowrap}
+.meisai-amt-table td:first-child{text-align:left;width:1%;padding-right:10px}
+.meisai-amt-table td:last-child{text-align:right;width:1%;padding-left:10px}
 .meisai-amt-total{font-weight:700}
 .meisai-deliv-label{margin-top:8px;font-size:12px;text-align:center;border:1px solid #222;padding:3px 0}
 .meisai-table-wrap{overflow-x:auto}
-.meisai-table-wrap tbody tr{height:22px}
+.meisai-table-wrap tbody tr{height:30px}
 .meisai-col-name{width:160px}
 .meisai-col-price{width:70px}
 .meisai-col-qty{width:56px}
@@ -2026,7 +2027,9 @@ function collectMeisaiSheets(customer, invoices, year, month){
   }
   return sheets;
 }
-const MEISAI_MAX_ITEM_ROWS=33;
+const MEISAI_MAX_ITEM_ROWS=25;
+const MEISAI_FIRST_ITEM_ROW=12;
+const MEISAI_LAST_ITEM_ROW=MEISAI_FIRST_ITEM_ROW+MEISAI_MAX_ITEM_ROWS-1;
 function countMeisaiItemsInSheetData(data){
   const keys=new Set();
   (data.invoices||[]).slice(0,14).forEach(inv=>{
@@ -2060,7 +2063,7 @@ function setupMeisaiSheet(ws, data){
   ws.pageSetup.fitToWidth=1;
   ws.pageSetup.fitToHeight=1;
   ws.pageSetup.horizontalCentered=true;
-  ws.pageSetup.printArea="A1:R44";
+  ws.pageSetup.printArea="A1:R"+MEISAI_LAST_ITEM_ROW;
   ws.columns=[{width:22},{width:8},...Array.from({length:14},()=>({width:6.6})),{width:8},{width:12}];
   ws.mergeCells("A1:R1");ws.mergeCells("A3:F3");ws.mergeCells("N5:O5");ws.mergeCells("P5:R5");
   ws.mergeCells("B6:G6");ws.mergeCells("B7:C7");ws.mergeCells("N6:O6");ws.mergeCells("P6:R6");ws.mergeCells("N7:O7");ws.mergeCells("P7:R7");
@@ -2073,7 +2076,7 @@ function setupMeisaiSheet(ws, data){
   ws.getCell("A3").font={name:"游ゴシック",size:12,bold:true};
   ws.getCell("G3").value="様";
   ws.getCell("O3").value=data.year;ws.getCell("P3").value="年";ws.getCell("Q3").value=data.month;ws.getCell("R3").value="月分";
-  ws.getCell("N5").value="小計金額";ws.getCell("P5").value={formula:"SUM(R12:R44)"};ws.getCell("P5").numFmt=yen;
+  ws.getCell("N5").value="小計金額";ws.getCell("P5").value={formula:"SUM(R"+MEISAI_FIRST_ITEM_ROW+":R"+MEISAI_LAST_ITEM_ROW+")"};ws.getCell("P5").numFmt=yen;
   ws.getCell("N6").value="消費税";ws.getCell("P6").value={formula:"P5*10%"};ws.getCell("P6").numFmt=yen;
   ws.getCell("A7").value="締め日";
   ws.getCell("B7").value=data.closingDay===0?"末":(data.closingDay?String(data.closingDay):"末");
@@ -2094,7 +2097,7 @@ function setupMeisaiSheet(ws, data){
   ws.getCell("C9").value="納　　品　　日";ws.getCell("C9").alignment={horizontal:"center"};ws.getCell("C9").font={name:"游ゴシック",size:9,bold:true};
   ws.getCell("A10").value="品名";ws.getCell("B10").value="単価";ws.getCell("Q10").value="合計数";ws.getCell("R10").value="合計金額";
   ["A10","B10","Q10","R10"].forEach(a=>{ws.getCell(a).alignment={horizontal:"center",vertical:"middle"};ws.getCell(a).font={name:"游ゴシック",size:9,bold:true};});
-  for(let r=12;r<=44;r++){
+  for(let r=MEISAI_FIRST_ITEM_ROW;r<=MEISAI_LAST_ITEM_ROW;r++){
     ws.getCell("Q"+r).value={formula:"SUM(C"+r+":P"+r+")"};ws.getCell("Q"+r).numFmt=qtyFmt;ws.getCell("Q"+r).alignment={horizontal:"center"};
     ws.getCell("R"+r).value={formula:"B"+r+"*Q"+r};ws.getCell("R"+r).numFmt=yen;
     ws.getCell("B"+r).numFmt=yen;
@@ -2112,7 +2115,7 @@ function setupMeisaiSheet(ws, data){
       const key=it.name+"|"+it.price;
       let row=itemRows.get(key);
       if(!row){
-        if(nextRow>44)return;
+        if(nextRow>MEISAI_LAST_ITEM_ROW)return;
         row=nextRow++;
         itemRows.set(key,row);
         ws.getCell("A"+row).value=it.name;
@@ -2127,7 +2130,7 @@ function setupMeisaiSheet(ws, data){
   meisaiBox(ws,7,2,7,3,false);
   meisaiBox(ws,5,14,amountBoxBottom,18,true);
   meisaiBox(ws,9,3,9,16,true);
-  meisaiBox(ws,10,1,44,18,true);
+  meisaiBox(ws,10,1,MEISAI_LAST_ITEM_ROW,18,true);
 }
 async function exportMeisaiWorkbook(sheets, filename){
   if(typeof ExcelJS==="undefined"){showToast("Excelライブラリの読み込みに失敗しました","error");return false;}
@@ -2247,7 +2250,7 @@ function renderMeisaiSheetHtml(data){
   const shime=data.closingDay===0?"末":(data.closingDay?String(data.closingDay):"末");
   const truncWarn=truncated?`<div class="meisai-screen-only" style="background:#fff3e0;border:1px solid #ffb74d;color:#e65100;padding:8px 12px;margin-bottom:8px;border-radius:6px;font-size:12px">⚠ 品目が${MEISAI_MAX_ITEM_ROWS}行を超えています。超過分は表示・Excel出力に含まれません。</div>`:"";
   const multi=(data.pageCount||1)>1;
-  const totalRow=multi?`<tr style="background:#fff8ef"><td style="text-align:left;font-weight:700;color:#854f0b;border-top:2px solid #854f0b">TOTAL（全${data.pageCount}枚）</td><td style="text-align:right;font-weight:700;color:#1a1a2e;border-top:2px solid #854f0b;min-width:110px">${yenTxt(data.grandTotal)}</td></tr>`:"";
+  const totalRow=multi?`<tr style="background:#fff8ef"><td style="font-weight:700;color:#854f0b;border-top:2px solid #854f0b">TOTAL（全${data.pageCount}枚）</td><td style="font-weight:700;color:#1a1a2e;border-top:2px solid #854f0b">${yenTxt(data.grandTotal)}</td></tr>`:"";
   return `<div class="meisai-sheet" id="meisai-sheet">
     ${truncWarn}
     <div class="meisai-title">請　求　明　細　書</div>
@@ -2318,30 +2321,29 @@ function printOpenMeisai(){
   w.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>請求明細書</title>
     <style>
       @page{size:A4 landscape;margin:8mm 10mm 12mm 10mm}
-      html,body{height:100%;margin:0}
+      html,body{margin:0}
       body{font-family:'Noto Sans JP',sans-serif;color:#111}
-      .meisai-sheet{min-width:0!important;height:100%;display:flex;flex-direction:column;box-sizing:border-box}
+      .meisai-sheet{min-width:0!important;box-sizing:border-box}
       .meisai-screen-only{display:none!important}
-      .meisai-title{text-align:center;font-size:20px;font-weight:700;letter-spacing:.4em;padding:6px 0 8px;border:1px solid #222;flex:0 0 auto}
-      .meisai-head{display:flex;justify-content:space-between;gap:12px;margin-top:6px;align-items:flex-start;flex:0 0 auto}
+      .meisai-title{text-align:center;font-size:20px;font-weight:700;letter-spacing:.4em;padding:6px 0 8px;border:1px solid #222}
+      .meisai-head{display:flex;justify-content:space-between;gap:12px;margin-top:6px;align-items:flex-start}
       .meisai-customer{font-size:15px;font-weight:700;border:1px solid #222;padding:4px 10px;min-width:240px}
       .meisai-customer span{font-weight:400;font-size:12px}
       .meisai-shime{margin-top:6px;font-size:12px}
       .meisai-shime strong{border:1px solid #222;padding:1px 8px;margin:0 4px}
       .meisai-page-note{color:#854f0b;font-weight:600}
-      .meisai-amounts{font-size:13px;text-align:right}
+      .meisai-amounts{font-size:13px;text-align:right;flex:0 0 auto}
       .meisai-month{margin-bottom:6px}
-      .meisai-amt-table{width:auto;margin-left:auto;border-collapse:collapse}
-      .meisai-amt-table td{border:1px solid #222;padding:2px 6px}
-      .meisai-amt-table td:first-child{text-align:left}
-      .meisai-amt-table td:last-child{text-align:right;min-width:100px}
+      .meisai-amt-table{width:auto;margin-left:auto;border-collapse:collapse;table-layout:auto}
+      .meisai-amt-table td{border:1px solid #222;padding:2px 8px;white-space:nowrap}
+      .meisai-amt-table td:first-child{text-align:left;width:1%}
+      .meisai-amt-table td:last-child{text-align:right;width:1%}
       .meisai-amt-total{font-weight:700}
-      .meisai-deliv-label{margin-top:6px;font-size:11px;text-align:center;border:1px solid #222;padding:2px 0;flex:0 0 auto}
-      .meisai-table-wrap{flex:1 1 auto;overflow:hidden;display:flex;margin-top:0}
-      .meisai-table-wrap table{border-collapse:collapse;width:100%;height:100%;table-layout:fixed}
-      .meisai-table-wrap thead{height:8mm}
+      .meisai-deliv-label{margin-top:6px;font-size:11px;text-align:center;border:1px solid #222;padding:2px 0}
+      .meisai-table-wrap{overflow:visible;margin-top:0}
+      .meisai-table-wrap table{border-collapse:collapse;width:100%;table-layout:fixed}
       .meisai-table-wrap thead tr{height:8mm}
-      .meisai-table-wrap tbody tr{height:0}
+      .meisai-table-wrap tbody tr{height:5.6mm}
       .meisai-table-wrap th,.meisai-table-wrap td{border:1px solid #222;padding:0 3px;font-size:10px;line-height:1.1;vertical-align:middle;white-space:nowrap;overflow:hidden}
       .meisai-col-name{width:18%}
       .meisai-col-price{width:8%}
