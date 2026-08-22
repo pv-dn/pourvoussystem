@@ -283,6 +283,7 @@ td{padding:9px 8px;border-bottom:.5px solid #f0ede8;font-size:13px;overflow:hidd
 .meisai-amt-total{font-weight:700}
 .meisai-deliv-label{margin-top:8px;font-size:12px;text-align:center;border:1px solid #222;padding:3px 0}
 .meisai-table-wrap{overflow-x:auto}
+.meisai-table-wrap tbody tr{height:22px}
 .meisai-col-name{width:160px}
 .meisai-col-price{width:70px}
 .meisai-col-qty{width:56px}
@@ -2239,10 +2240,10 @@ function renderMeisaiSheetHtml(data){
   const dateCells=Array.from({length:14},(_,i)=>`<th style="width:42px;text-align:center;font-weight:500">${invoices[i]?formatMeisaiMD(invoices[i].deliveryDate):""}</th>`).join("");
   const body=rows.map(r=>{
     const qtyCells=r.qtys.map(q=>`<td style="text-align:center">${q||""}</td>`).join("");
-    return `<tr><td style="text-align:left;white-space:normal">${r.name}</td><td style="text-align:right">${yenTxt(r.price)}</td>${qtyCells}<td style="text-align:center">${r.qtySum||""}</td><td style="text-align:right">${r.amount?yenTxt(r.amount):""}</td></tr>`;
+    return `<tr><td style="text-align:left">${r.name}</td><td style="text-align:right">${yenTxt(r.price)}</td>${qtyCells}<td style="text-align:center">${r.qtySum||""}</td><td style="text-align:right">${r.amount?yenTxt(r.amount):""}</td></tr>`;
   }).join("");
   const emptyCount=Math.max(0, MEISAI_MAX_ITEM_ROWS-rows.length);
-  const empty=Array.from({length:emptyCount},()=>`<tr>${"<td></td>".repeat(18)}</tr>`).join("");
+  const empty=Array.from({length:emptyCount},()=>`<tr>${"<td>&nbsp;</td>".repeat(18)}</tr>`).join("");
   const shime=data.closingDay===0?"末":(data.closingDay?String(data.closingDay):"末");
   const truncWarn=truncated?`<div class="meisai-screen-only" style="background:#fff3e0;border:1px solid #ffb74d;color:#e65100;padding:8px 12px;margin-bottom:8px;border-radius:6px;font-size:12px">⚠ 品目が${MEISAI_MAX_ITEM_ROWS}行を超えています。超過分は表示・Excel出力に含まれません。</div>`:"";
   const multi=(data.pageCount||1)>1;
@@ -2338,7 +2339,10 @@ function printOpenMeisai(){
       .meisai-deliv-label{margin-top:6px;font-size:11px;text-align:center;border:1px solid #222;padding:2px 0;flex:0 0 auto}
       .meisai-table-wrap{flex:1 1 auto;overflow:hidden;display:flex;margin-top:0}
       .meisai-table-wrap table{border-collapse:collapse;width:100%;height:100%;table-layout:fixed}
-      th,td{border:1px solid #222;padding:2px 3px;font-size:10px}
+      .meisai-table-wrap thead{height:8mm}
+      .meisai-table-wrap thead tr{height:8mm}
+      .meisai-table-wrap tbody tr{height:0}
+      .meisai-table-wrap th,.meisai-table-wrap td{border:1px solid #222;padding:0 3px;font-size:10px;line-height:1.1;vertical-align:middle;white-space:nowrap;overflow:hidden}
       .meisai-col-name{width:18%}
       .meisai-col-price{width:8%}
       .meisai-col-qty{width:6%}
