@@ -6,6 +6,9 @@
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
 <title>プゥル・ヴー 納品書発行システム</title>
+<link rel="icon" href="icons/desktop.ico" type="image/x-icon">
+<link rel="icon" href="icons/favicon-32.png" type="image/png" sizes="32x32">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;600&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
@@ -389,30 +392,36 @@ td{padding:9px 8px;border-bottom:.5px solid #f0ede8;font-size:13px;overflow:hidd
 const COMPANY={name:"株式会社プゥル・ヴー",division:"ホワイト事業部",zip:"〒252-0025",address:"神奈川県大和市代官2-12-2",tel:"TEL046-267-9228",fax:"FAX046-201-2116"};
 const TABS=["伝票発行","発行履歴","📊 売上統計","📂 データ","バックアップ","運用方法","👤 ユーザー管理"];
 const DAY_NAMES=["日","月","火","水","木","金","土"];
-/** ヘッダー「更新情報」用。新しいものを先頭に追加する */
+/** 更新情報: 機能更新と機能的なバグ修正のみ（文言調整・Tipsは載せない）。新しいものを先頭へ。 */
 const APP_UPDATES=[
-  {date:"2026-08",title:"請求明細書の複数枚合計",items:["複数枚に分かれた請求明細書でも、各ページの合計はそのまま残します","ご請求金額の下に「TOTAL（全N枚）」を表示します（画面・Excel・印刷）"]},
-  {date:"2026-08",title:"明細書の画面確認を使いやすく",items:["客先一覧からすぐに切り替えできます","印刷しなくても明細書を前面で確認できます"]},
-  {date:"2026-08",title:"複数PCでの履歴保存を強化",items:["発行履歴はトランザクションでマージ保存し、別PCの発行が消えにくくなりました"]},
-  {date:"2026-08",title:"発行・保存まわりの安定化",items:["保存失敗を検知して、失敗時は印刷や反映を止めます","発行ボタンの連打を防止します","客先名を変更すると履歴・発行なしも追従します","「没」から復活すると請求は未反映に戻ります"]},
-  {date:"2026-08",title:"発行なしを履歴に残す",items:["未発行カードの「発行なし」が発行履歴に残り、取り消し・削除できます"]},
-  {date:"2026-08",title:"請求明細書まわり",items:["未反映の請求月をワンクリックでExcel出力できます","反映の取り消しができます","宛名は客先名表示に統一しました"]},
+  {date:"2026-08",kind:"機能",title:"請求明細書の複数枚合計",items:["複数枚の場合、各ページ合計はそのまま残し、ご請求金額下に TOTAL（全N枚）を表示（画面・Excel・印刷）"]},
+  {date:"2026-08",kind:"機能",title:"請求明細書の画面確認",items:["印刷なしで明細書を画面確認できる","客先一覧から客先を切り替えて確認できる"]},
+  {date:"2026-08",kind:"修正",title:"複数PCでの履歴保存",items:["発行履歴をトランザクションでマージ保存し、別PCの発行が消える不具合を修正"]},
+  {date:"2026-08",kind:"修正",title:"発行・保存まわり",items:["保存失敗時は印刷・反映を止める","発行ボタンの連打で二重発行しない","客先名変更が履歴・発行なしに反映されない不具合を修正","没から復活すると請求が未反映に戻る"]},
+  {date:"2026-08",kind:"機能",title:"発行なしを履歴に残す",items:["未発行カードの「発行なし」を発行履歴に記録し、取り消し・削除できる"]},
+  {date:"2026-08",kind:"機能",title:"請求明細書の出力・反映",items:["未反映の請求月をワンクリックでExcel出力","反映の取り消しができる"]},
 ];
 function openUpdateInfo(){
   const el=document.getElementById("update-info-modal");
   if(!el)return;
-  const body=APP_UPDATES.map(u=>`
+  const body=APP_UPDATES.map(u=>{
+    const kindColor=u.kind==="修正"?"#c62828":"#1565c0";
+    return `
     <div style="margin-bottom:18px;padding-bottom:16px;border-bottom:1px solid #eee">
-      <div style="font-size:11px;color:#888;margin-bottom:4px">${u.date}</div>
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+        <span style="font-size:11px;font-weight:700;color:${kindColor};border:1px solid ${kindColor};border-radius:4px;padding:1px 6px">${u.kind}</span>
+        <span style="font-size:11px;color:#888">${u.date}</span>
+      </div>
       <div style="font-size:15px;font-weight:700;color:#1a1a2e;margin-bottom:8px">${u.title}</div>
       <ul style="margin:0;padding-left:18px;color:#444;font-size:13px;line-height:1.7">${u.items.map(i=>`<li>${i}</li>`).join("")}</ul>
-    </div>`).join("");
+    </div>`;
+  }).join("");
   el.innerHTML=`<div style="background:#fff;border-radius:12px;width:min(520px,92vw);max-height:80vh;overflow:auto;padding:24px 28px;box-shadow:0 8px 32px rgba(0,0,0,.25)" onclick="event.stopPropagation()">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
       <h2 style="font-size:18px;font-weight:700;color:#1a1a2e;margin:0">更新情報</h2>
       <button type="button" onclick="closeUpdateInfo()" style="background:#eee;border:none;border-radius:6px;padding:6px 14px;cursor:pointer;font-size:13px">閉じる</button>
     </div>
-    <p style="font-size:12px;color:#888;margin:0 0 16px">最近の主な変更です。反映後は Ctrl+Shift+R で再読み込みしてください。</p>
+    <p style="font-size:12px;color:#888;margin:0 0 16px">機能更新とバグ修正のみ掲載しています。</p>
     ${body}
   </div>`;
   el.classList.remove("hidden");
