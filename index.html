@@ -892,7 +892,7 @@ function renderIssueTab(){
   if(showCustomPanel&&iss.customItems&&iss.customItems.length){
     const escAttr=v=>String(v??"").replace(/&/g,"&amp;").replace(/"/g,"&quot;").replace(/</g,"&lt;");
     itemsHtml+=`<div style="margin-bottom:8px;padding:8px;background:#f0f7ff;border-radius:8px;border:1px solid #c8e0ff"><div style="font-size:12px;color:#1565c0;margin-bottom:6px">📝 自由入力行</div>`;
-    itemsHtml+=iss.customItems.map((item,i)=>`<div style="display:grid;grid-template-columns:2fr 1fr 1fr auto;gap:8px;margin-bottom:6px"><input placeholder="品名" value="${escAttr(item.name)}" oninput="setCustomItem(${i},'name',this.value)" style="padding:9px 12px;border:1px solid #c8e0ff;border-radius:8px;font-size:14px"><input type="number" placeholder="数量" value="${escAttr(item.qty)}" oninput="setCustomItem(${i},'qty',this.value,true)" style="padding:9px 12px;border:1px solid #c8e0ff;border-radius:8px;font-size:14px;text-align:center"><input type="number" placeholder="単価" value="${escAttr(item.price)}" oninput="setCustomItem(${i},'price',this.value,true)" style="padding:9px 12px;border:1px solid #c8e0ff;border-radius:8px;font-size:14px;text-align:right"><button onclick="removeCustomItem(${i})" style="background:#fee;border:1px solid #fcc;border-radius:6px;cursor:pointer;padding:0 10px;color:#c62828">✕</button></div>`).join("");
+    itemsHtml+=iss.customItems.map((item,i)=>`<div style="display:grid;grid-template-columns:2fr 1fr 1fr auto;gap:8px;margin-bottom:6px"><input placeholder="品名" value="${escAttr(item.name)}" oninput="setCustomItem(${i},'name',this.value)" style="padding:9px 12px;border:1px solid #c8e0ff;border-radius:8px;font-size:14px"><input type="number" placeholder="数量" value="${escAttr(item.qty)}" oninput="setCustomItem(${i},'qty',this.value,true)" style="padding:9px 12px;border:1px solid #c8e0ff;border-radius:8px;font-size:14px;text-align:center"><input type="number" placeholder="単価" value="${escAttr(item.price)}" oninput="setCustomItem(${i},'price',this.value,true)" style="padding:9px 12px;border:1px solid #c8e0ff;border-radius:8px;font-size:14px;text-align:right"><button type="button" onclick="removeCustomItem(${i})" style="background:#fee;border:1px solid #fcc;border-radius:6px;cursor:pointer;padding:0 10px;color:#c62828">✕</button></div>`).join("");
     itemsHtml+=`</div>`;
   }
   // 商品ピッカー
@@ -947,8 +947,8 @@ function renderIssueTab(){
       <textarea placeholder="自由に入力できます" oninput="state.issue.memo=this.value" style="width:100%;padding:9px 12px;border:1px solid #ddd;border-radius:8px;font-size:14px;resize:vertical;height:64px;line-height:1.6">${iss.memo||""}</textarea>
     </div>
     <div class="total-row">
-      ${mg>0&&sub<mg?`<div style="font-size:13px;color:#c17a00">小計 ¥${sub.toLocaleString()} → 最低保証 ¥${mg.toLocaleString()} 適用</div>`:""}
-      <div><div style="font-size:14px;color:#666">合計金額</div><div style="font-size:20px;font-weight:700;color:#1a1a2e">¥${total.toLocaleString()}</div></div>
+      <div id="issue-mg-note">${mg>0&&sub<mg?`<div style="font-size:13px;color:#c17a00">小計 ¥${sub.toLocaleString()} → 最低保証 ¥${mg.toLocaleString()} 適用</div>`:""}</div>
+      <div><div style="font-size:14px;color:#666">合計金額</div><div id="issue-total-amount" style="font-size:20px;font-weight:700;color:#1a1a2e">¥${total.toLocaleString()}</div></div>
     </div>
     <button class="issue-btn" onclick="issueInvoice()">納品書を発行する</button>
   </div>`:""}`;
@@ -1028,8 +1028,18 @@ function qtyKeyDown(e,i){
 }
 function setCustomItem(i,k,v,refreshTotal){
   if(!state.issue.customItems[i])return;
+  // 入力中にrender()するとフォーカスが消えるため、状態と合計表示だけ更新
   state.issue.customItems[i][k]=v;
-  if(refreshTotal)render();
+  if(refreshTotal)updateIssueTotalsDisplay();
+}
+function updateIssueTotalsDisplay(){
+  const sub=getSubtotal();
+  const mg=state.minG[state.issue.customer]||0;
+  const total=Math.max(sub,mg);
+  const totalEl=document.getElementById("issue-total-amount");
+  if(totalEl)totalEl.textContent="¥"+total.toLocaleString();
+  const noteEl=document.getElementById("issue-mg-note");
+  if(noteEl)noteEl.innerHTML=mg>0&&sub<mg?`<div style="font-size:13px;color:#c17a00">小計 ¥${sub.toLocaleString()} → 最低保証 ¥${mg.toLocaleString()} 適用</div>`:"";
 }
 
 function showProductPicker(){
