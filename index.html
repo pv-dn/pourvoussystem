@@ -417,6 +417,7 @@ const TABS=["伝票発行","発行履歴","📊 売上統計","📂 データ","
 const DAY_NAMES=["日","月","火","水","木","金","土"];
 /** 更新情報: 機能更新と機能的なバグ修正のみ（文言調整・Tipsは載せない）。新しいものを先頭へ。 */
 const APP_UPDATES=[
+  {date:"2026-08",kind:"機能",title:"古い未反映の請求対象外",items:["今月より前の納品分で、まだ未反映の伝票を請求対象外にできる","発行履歴は残り、未反映の件数・Excel書き出し対象から外れる"]},
   {date:"2026-08",kind:"機能",title:"請求タブを追加",items:["データとバックアップの間に「請求」タブを追加","請求明細書の確認・Excel書き出し・締め日・単価の反映ルールをまとめて表示"]},
   {date:"2026-08",kind:"機能",title:"都度単価の品目",items:["客先詳細で「都度単価」を設定できる","一式など単価が毎回変わる品目を登録品目一覧から発行し、伝票発行時に単価を入力できる"]},
   {date:"2026-08",kind:"機能",title:"請求明細書の複数枚合計",items:["複数枚の場合、各ページ合計はそのまま残し、ご請求金額下に TOTAL（全N枚）を表示（画面・Excel・印刷）"]},
@@ -1195,6 +1196,8 @@ function renderBillingTab(){
   const todayStr=fmtDate(new Date());
   const todayCount=state.history.filter(h=>isRealInvoice(h)&&fmtDate(new Date(h.deliveryDate))===todayStr).length;
   const pendingCount=pendingBillingInvoices().length;
+  const oldPendingCount=oldPendingBillingInvoices().length;
+  const skipCutoffLabel=getBillingSkipCutoffLabel();
   const closingCustOpts=state.customers.map(c=>{const cd=state.closingDays[c.name];const cdLabel=cd===0?"月末〆":cd?cd+"日〆":"締め日未設定";return`<option value="${c.name}">${c.name}（${cdLabel}）</option>`;}).join("");
   return`<h2 style="font-size:20px;font-weight:600;margin-bottom:16px;color:#1a1a2e">請求</h2>
   <div class="card" style="background:#f0f7ff;border:1px solid #90caf9">
@@ -1205,6 +1208,10 @@ function renderBillingTab(){
       ${billingExportBtnHtml()}
     </div>
     <div style="font-size:12px;color:#555;margin-bottom:12px;line-height:1.6">未反映がある請求月の明細書を出します。同じ月に反映済みがある場合も、月全体が載ります（正式な請求明細のため）。「反映済み」になるのは未反映分だけです。</div>
+    ${oldPendingCount?`<div style="margin-bottom:12px;padding:10px 12px;background:#fff8e1;border:1px solid #ffe082;border-radius:8px">
+      <div style="font-size:13px;color:#5d4037;margin-bottom:8px;line-height:1.6"><strong>${skipCutoffLabel}</strong>の未反映が <strong>${oldPendingCount}件</strong> あります。すでに請求済み・不要な場合は対象外にできます（発行履歴は残ります）。</div>
+      <button onclick="skipOldPendingBilling()" style="background:#fff;border:1px solid #c17a00;color:#8a5a00;border-radius:8px;padding:8px 14px;cursor:pointer;font-size:13px;font-weight:600;white-space:nowrap">🗂 ${skipCutoffLabel}の未反映を請求対象外にする</button>
+    </div>`:""}
     <div style="display:flex;align-items:flex-end;gap:10px;flex-wrap:wrap;margin-bottom:10px">
       <div><label class="lbl">今日（${todayStr}）納品分 ${todayCount}件（再出力）</label>
         <button onclick="openMeisaiView('today')" style="display:block;background:#fff;border:1px solid #1565c0;color:#1565c0;padding:10px 22px;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600;white-space:nowrap;margin-top:4px">👁 今日の分を見る</button>
@@ -1255,6 +1262,7 @@ function renderBillingTab(){
       <p style="margin:0 0 10px"><strong>未反映</strong> … まだ請求明細Excelに取り込んでいない伝票です。「📄 未反映→請求明細Excel」で書き出すと反映済みになります。</p>
       <p style="margin:0 0 10px"><strong>反映済み</strong> … 一度Excelに書き出した伝票です。同じ請求月を再度見るときは月全体（反映済み＋未反映）が表示されます。</p>
       <p style="margin:0"><strong>反映を取り消す</strong> … 直前の書き出し分を「↩ 反映を取り消す」で未反映に戻せます。没にした伝票を復活させた場合も、未反映に戻ります。</p>
+      <p style="margin:10px 0 0"><strong>請求対象外</strong> … 今月より前の納品分で、もう請求明細に不要な未反映は「請求対象外にする」で除外できます。発行履歴には残ります。</p>
     </div>
   </div>`;
 }
@@ -1480,7 +1488,7 @@ async function toggleVoid(id){
   const prevExportedAt=h.billingExportedAt;
   h.void=!h.void;
   // 復活したら請求明細の未反映に戻す
-  if(prevVoid&&!h.void)delete h.billingExportedAt;
+  if(prevVoid&&!h.void){delete h.billingExportedAt;delete h.billingSkippedAt;}
   window._issuingInvoice=true;
   try{
     await saveHistoryMerged(state.history);
@@ -2040,8 +2048,58 @@ function getBillingMonthFromDate(dateVal, closingDay){
 }
 
 function pendingBillingInvoices(){
-  return (state.history||[]).filter(h=>isRealInvoice(h)&&!h.billingExportedAt);
+  return (state.history||[]).filter(h=>isBillingPending(h));
 }
+function isBillingPending(h){
+  return isRealInvoice(h)&&!h.billingExportedAt&&!h.billingSkippedAt;
+}
+/** 今月1日より前の納品日＝先月以前の納品分 */
+function getBillingSkipCutoffDate(){
+  const d=new Date();
+  d.setDate(1);
+  d.setHours(0,0,0,0);
+  return d;
+}
+function getBillingSkipCutoffLabel(){
+  const last=new Date(getBillingSkipCutoffDate());
+  last.setDate(0);
+  return `${last.getMonth()+1}月納品分まで`;
+}
+function oldPendingBillingInvoices(){
+  const cutoff=getBillingSkipCutoffDate();
+  return pendingBillingInvoices().filter(h=>{
+    const d=new Date(h.deliveryDate);
+    return !isNaN(d)&&d<cutoff;
+  });
+}
+async function skipOldPendingBilling(){
+  const targets=oldPendingBillingInvoices();
+  if(!targets.length){showToast("対象の未反映がありません","error");return;}
+  const label=getBillingSkipCutoffLabel();
+  if(!confirm(`${label}の未反映 ${targets.length}件 を請求対象外にしますか？\n\n・発行履歴には残ります\n・未反映の件数・Excel書き出し対象から外れます\n・請求明細書には載りません`))return;
+  const now=new Date().toISOString();
+  const saved=targets.map(h=>({id:h.id,skippedAt:h.billingSkippedAt}));
+  targets.forEach(h=>{h.billingSkippedAt=now;});
+  window._issuingInvoice=true;
+  try{
+    await saveHistoryMerged(state.history);
+    if(window._saveDataEditLog)window._saveDataEditLog("請求",`${targets.length}件を請求対象外に（${label}）`);
+    showToast(targets.length+"件を請求対象外にしました");
+  }catch(e){
+    console.error("請求対象外の保存エラー",e);
+    saved.forEach(s=>{
+      const h=state.history.find(x=>x.id===s.id);
+      if(!h)return;
+      if(s.skippedAt)h.billingSkippedAt=s.skippedAt;
+      else delete h.billingSkippedAt;
+    });
+    showToast("保存に失敗しました。変更は反映されていません","error");
+  }finally{
+    setTimeout(()=>{window._issuingInvoice=false;},2000);
+  }
+  render();
+}
+window.skipOldPendingBilling=skipOldPendingBilling;
 
 function lastBillingExportBatch(){
   const stamped=(state.history||[]).filter(h=>isRealInvoice(h)&&h.billingExportedAt);
