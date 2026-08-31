@@ -413,10 +413,11 @@ td{padding:9px 8px;border-bottom:.5px solid #f0ede8;font-size:13px;overflow:hidd
 
 <script>
 const COMPANY={name:"株式会社プゥル・ヴー",division:"ホワイト事業部",zip:"〒252-0025",address:"神奈川県大和市代官2-12-2",tel:"TEL046-267-9228",fax:"FAX046-201-2116"};
-const TABS=["伝票発行","発行履歴","📊 売上統計","📂 データ","バックアップ","運用方法","👤 ユーザー管理"];
+const TABS=["伝票発行","発行履歴","📊 売上統計","📂 データ","請求","バックアップ","運用方法","👤 ユーザー管理"];
 const DAY_NAMES=["日","月","火","水","木","金","土"];
 /** 更新情報: 機能更新と機能的なバグ修正のみ（文言調整・Tipsは載せない）。新しいものを先頭へ。 */
 const APP_UPDATES=[
+  {date:"2026-08",kind:"機能",title:"請求タブを追加",items:["データとバックアップの間に「請求」タブを追加","請求明細書の確認・Excel書き出し・締め日・単価の反映ルールをまとめて表示"]},
   {date:"2026-08",kind:"機能",title:"都度単価の品目",items:["客先詳細で「都度単価」を設定できる","一式など単価が毎回変わる品目を登録品目一覧から発行し、伝票発行時に単価を入力できる"]},
   {date:"2026-08",kind:"機能",title:"請求明細書の複数枚合計",items:["複数枚の場合、各ページ合計はそのまま残し、ご請求金額下に TOTAL（全N枚）を表示（画面・Excel・印刷）"]},
   {date:"2026-08",kind:"機能",title:"請求明細書の画面確認",items:["印刷なしで明細書を画面確認できる","客先一覧から客先を切り替えて確認できる"]},
@@ -777,9 +778,10 @@ function render(){
   else if(state.tab===1)main.innerHTML=renderHistoryTab();
   else if(state.tab===2)main.innerHTML=renderStatsTab();
   else if(state.tab===3)renderDataTab();
-  else if(state.tab===4)main.innerHTML=renderSettingsTab();
-  else if(state.tab===5)main.innerHTML=renderGuideTab();
-  else if(state.tab===6)main.innerHTML=renderUserTab();
+  else if(state.tab===4)main.innerHTML=renderBillingTab();
+  else if(state.tab===5)main.innerHTML=renderSettingsTab();
+  else if(state.tab===6)main.innerHTML=renderGuideTab();
+  else if(state.tab===7)main.innerHTML=renderUserTab();
   bindEvents();
   if(state.showPrint)renderPrintModal();
   if(state.meisaiView)renderMeisaiModal();
@@ -1188,6 +1190,75 @@ async function issueInvoice(){
   }
 }
 
+// --- Billing Tab ---
+function renderBillingTab(){
+  const todayStr=fmtDate(new Date());
+  const todayCount=state.history.filter(h=>isRealInvoice(h)&&fmtDate(new Date(h.deliveryDate))===todayStr).length;
+  const pendingCount=pendingBillingInvoices().length;
+  const closingCustOpts=state.customers.map(c=>{const cd=state.closingDays[c.name];const cdLabel=cd===0?"月末〆":cd?cd+"日〆":"締め日未設定";return`<option value="${c.name}">${c.name}（${cdLabel}）</option>`;}).join("");
+  return`<h2 style="font-size:20px;font-weight:600;margin-bottom:16px;color:#1a1a2e">請求</h2>
+  <div class="card" style="background:#f0f7ff;border:1px solid #90caf9">
+    <div style="font-size:15px;font-weight:600;color:#1a1a2e;margin-bottom:8px">📋 請求明細書を確認・書き出す</div>
+    <div style="font-size:12px;color:#555;margin-bottom:12px;line-height:1.6">印刷やExcelなしでも、画面上で請求明細書の内容を確認できます。「👁 ○○を見る」を押すと、客先ごとの明細が開きます。</div>
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px">
+      <button onclick="openMeisaiView('pending')" style="background:#fff;border:1px solid #854f0b;color:#854f0b;border-radius:8px;padding:8px 14px;cursor:pointer;font-size:13px;font-weight:600;white-space:nowrap">👁 未反映の請求月を見る${pendingCount?`（${pendingCount}件）`:""}</button>
+      ${billingExportBtnHtml()}
+    </div>
+    <div style="font-size:12px;color:#555;margin-bottom:12px;line-height:1.6">未反映がある請求月の明細書を出します。同じ月に反映済みがある場合も、月全体が載ります（正式な請求明細のため）。「反映済み」になるのは未反映分だけです。</div>
+    <div style="display:flex;align-items:flex-end;gap:10px;flex-wrap:wrap;margin-bottom:10px">
+      <div><label class="lbl">今日（${todayStr}）納品分 ${todayCount}件（再出力）</label>
+        <button onclick="openMeisaiView('today')" style="display:block;background:#fff;border:1px solid #1565c0;color:#1565c0;padding:10px 22px;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600;white-space:nowrap;margin-top:4px">👁 今日の分を見る</button>
+        <button onclick="exportTodayExcel()" style="display:block;background:#1565c0;color:#fff;border:none;padding:8px 22px;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600;white-space:nowrap;margin-top:6px">📥 今日の分をExcel書き出し</button>
+      </div>
+    </div>
+    <div style="border-top:1px solid #bbdefb;padding-top:12px">
+      <div style="font-size:13px;font-weight:600;color:#1a1a2e;margin-bottom:8px">締め日ごとに確認・書き出す</div>
+      <div style="display:flex;align-items:flex-end;gap:10px;flex-wrap:wrap">
+        <div><label class="lbl">客先</label><select id="export-cust" style="padding:7px 10px;border:1px solid #90caf9;border-radius:6px;font-size:13px;min-width:220px"><option value="">（全客先）</option>${closingCustOpts}</select></div>
+        <div><label class="lbl">基準年月</label><input type="month" id="export-month" style="padding:7px 10px;border:1px solid #90caf9;border-radius:6px;font-size:13px" value="${new Date().getFullYear()+"-"+String(new Date().getMonth()+1).padStart(2,"0")}"></div>
+        <button onclick="openMeisaiView('closing')" style="background:#fff;border:1px solid #0277bd;color:#0277bd;padding:10px 18px;border-radius:6px;cursor:pointer;font-size:13px;font-weight:600;white-space:nowrap">👁 この期間を見る</button>
+        <button onclick="exportClosingExcel()" style="background:#0277bd;color:#fff;border:none;padding:10px 18px;border-radius:6px;cursor:pointer;font-size:13px;font-weight:600;white-space:nowrap">📥 締め日期間で書き出し</button>
+      </div>
+      <div style="font-size:12px;color:#777;margin-top:6px">※ 締め日が設定されていない客先は対象外です。<a href="#" onclick="setTab(3);return false" style="color:#1565c0">データ → 客先管理</a>で設定できます。</div>
+    </div>
+    <div style="border-top:1px solid #bbdefb;margin-top:12px;padding-top:12px">
+      <div style="font-size:13px;font-weight:600;color:#1a1a2e;margin-bottom:6px">📂 明細書Excelへの取り込み用データ</div>
+      <div style="display:flex;align-items:flex-end;gap:10px;flex-wrap:wrap">
+        <button onclick="exportMeisaiJson()" style="background:#37474f;color:#fff;border:none;padding:10px 18px;border-radius:6px;cursor:pointer;font-size:13px;font-weight:600;white-space:nowrap">📂 明細書用データを書き出す</button>
+      </div>
+      <div style="font-size:12px;color:#777;margin-top:6px">※ 普段は不要です。旧マクロ（プゥル・ヴー明細書.xlsm の「データ取り込み」）を使うときだけ書き出してください。</div>
+    </div>
+  </div>
+  <div class="card">
+    <h3 style="margin-top:0">📅 締め日と請求月</h3>
+    <p style="font-size:14px;color:#555;margin-bottom:12px;line-height:1.7">客先ごとに締め日を設定すると、書き出し時に自動で正しい期間・請求月のシートへ切り替わります。</p>
+    <div style="background:#f5f3ef;border-radius:8px;padding:14px;font-size:13px;line-height:2;margin-bottom:12px">
+      <strong>例（書き出し日：5月26日）</strong><br>
+      ・20日締め → 4/21〜5/20（5/21からは6月分）<br>
+      ・25日締め → 4/26〜5/25（5/26からは6月分）<br>
+      ・月末締め → 5/1〜5/31（6/1からは6月分）
+    </div>
+    <div style="font-size:13px;color:#555;line-height:1.7">客先の「詳細編集」→「締め日」で 15日 / 20日 / 25日 / 月末 を選び保存します。</div>
+  </div>
+  <div class="card">
+    <h3 style="margin-top:0">💴 明細書への単価の反映ルール</h3>
+    <div style="background:#f5f3ef;border-radius:8px;padding:14px;font-size:13px;line-height:2">
+      ・<strong>品名が初めて</strong> → 伝票の単価で登録<br>
+      ・<strong>品名・単価が同じ</strong> → その行に数量を追記<br>
+      ・<strong>品名同じ・単価が違う</strong>（値上がりなど）→ <strong>別行として追加</strong>
+    </div>
+    <div style="font-size:12px;color:#888;margin-top:10px;line-height:1.6">値上がり時は同じ品名が2行になります。それぞれ別単価で集計されます。</div>
+  </div>
+  <div class="card">
+    <h3 style="margin-top:0">🔄 未反映と反映済み</h3>
+    <div style="font-size:13px;color:#555;line-height:1.8">
+      <p style="margin:0 0 10px"><strong>未反映</strong> … まだ請求明細Excelに取り込んでいない伝票です。「📄 未反映→請求明細Excel」で書き出すと反映済みになります。</p>
+      <p style="margin:0 0 10px"><strong>反映済み</strong> … 一度Excelに書き出した伝票です。同じ請求月を再度見るときは月全体（反映済み＋未反映）が表示されます。</p>
+      <p style="margin:0"><strong>反映を取り消す</strong> … 直前の書き出し分を「↩ 反映を取り消す」で未反映に戻せます。没にした伝票を復活させた場合も、未反映に戻ります。</p>
+    </div>
+  </div>`;
+}
+
 // --- History Tab ---
 if(!state.openFolders)state.openFolders={};
 function historyRowHtml(h,showCustomer){
@@ -1242,47 +1313,10 @@ function renderHistoryTab(){
 
   const emptyHtml=`<div style="text-align:center;color:#aaa;padding:40px">履歴がありません</div>`;
 
-  const todayStr=fmtDate(new Date());
-  const todayCount=state.history.filter(h=>isRealInvoice(h)&&fmtDate(new Date(h.deliveryDate))===todayStr).length;
-  // 締め日別・客先別の書き出し候補を生成
-  const closingOpts=[...new Set(Object.values(state.closingDays))].filter(v=>v!=="").sort((a,b)=>a-b);
-  const closingCustOpts=state.customers.map(c=>{const cd=state.closingDays[c.name];const cdLabel=cd===0?"月末〆":cd?cd+"日〆":"締め日未設定";return`<option value="${c.name}">${c.name}（${cdLabel}）</option>`;}).join("");
   return`<h2 style="font-size:20px;font-weight:600;margin-bottom:16px;color:#1a1a2e">発行履歴
     <button onclick="toggleInvoiceLog()" id="invoice-log-btn" style="margin-left:12px;background:#f0ede8;border:1px solid #ddd;border-radius:6px;padding:4px 12px;cursor:pointer;font-size:12px;color:#666;font-weight:400">📋 発行ログを見る</button>
   </h2>
   <div id="invoice-log-section" style="display:none;margin-bottom:20px"></div>
-  <div class="card" style="background:#f0f7ff;border:1px solid #90caf9">
-    <div style="font-size:15px;font-weight:600;color:#1a1a2e;margin-bottom:8px">📋 請求明細書を確認・書き出す</div>
-    <div style="font-size:12px;color:#555;margin-bottom:12px;line-height:1.6">印刷やExcelなしでも、画面上で請求明細書の内容を確認できます。「👁 ○○を見る」を押すと、客先ごとの明細が開きます。</div>
-    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px">
-      <button onclick="openMeisaiView('pending')" style="background:#fff;border:1px solid #854f0b;color:#854f0b;border-radius:8px;padding:8px 14px;cursor:pointer;font-size:13px;font-weight:600;white-space:nowrap">👁 未反映の請求月を見る</button>
-      ${billingExportBtnHtml()}
-    </div>
-    <div style="font-size:12px;color:#555;margin-bottom:12px;line-height:1.6">未反映がある請求月の明細書を出します。同じ月に反映済みがある場合も、月全体が載ります（正式な請求明細のため）。「反映済み」になるのは未反映分だけです。</div>
-    <div style="display:flex;align-items:flex-end;gap:10px;flex-wrap:wrap;margin-bottom:10px">
-      <div><label class="lbl">今日（${todayStr}）納品分 ${todayCount}件（再出力）</label>
-        <button onclick="openMeisaiView('today')" style="display:block;background:#fff;border:1px solid #1565c0;color:#1565c0;padding:10px 22px;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600;white-space:nowrap;margin-top:4px">👁 今日の分を見る</button>
-        <button onclick="exportTodayExcel()" style="display:block;background:#1565c0;color:#fff;border:none;padding:8px 22px;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600;white-space:nowrap;margin-top:6px">📥 今日の分をExcel書き出し</button>
-      </div>
-    </div>
-    <div style="border-top:1px solid #bbdefb;padding-top:12px">
-      <div style="font-size:13px;font-weight:600;color:#1a1a2e;margin-bottom:8px">締め日ごとに確認・書き出す</div>
-      <div style="display:flex;align-items:flex-end;gap:10px;flex-wrap:wrap">
-        <div><label class="lbl">客先</label><select id="export-cust" style="padding:7px 10px;border:1px solid #90caf9;border-radius:6px;font-size:13px;min-width:220px"><option value="">（全客先）</option>${closingCustOpts}</select></div>
-        <div><label class="lbl">基準年月</label><input type="month" id="export-month" style="padding:7px 10px;border:1px solid #90caf9;border-radius:6px;font-size:13px" value="${new Date().getFullYear()+"-"+String(new Date().getMonth()+1).padStart(2,"0")}"></div>
-        <button onclick="openMeisaiView('closing')" style="background:#fff;border:1px solid #0277bd;color:#0277bd;padding:10px 18px;border-radius:6px;cursor:pointer;font-size:13px;font-weight:600;white-space:nowrap">👁 この期間を見る</button>
-        <button onclick="exportClosingExcel()" style="background:#0277bd;color:#fff;border:none;padding:10px 18px;border-radius:6px;cursor:pointer;font-size:13px;font-weight:600;white-space:nowrap">📥 締め日期間で書き出し</button>
-      </div>
-      <div style="font-size:12px;color:#777;margin-top:6px">※ 締め日が設定されていない客先は対象外です。客先管理タブで設定できます。</div>
-    </div>
-    <div style="border-top:1px solid #bbdefb;margin-top:12px;padding-top:12px">
-      <div style="font-size:13px;font-weight:600;color:#1a1a2e;margin-bottom:6px">📂 明細書Excelへの取り込み用データ</div>
-      <div style="display:flex;align-items:flex-end;gap:10px;flex-wrap:wrap">
-        <button onclick="exportMeisaiJson()" style="background:#37474f;color:#fff;border:none;padding:10px 18px;border-radius:6px;cursor:pointer;font-size:13px;font-weight:600;white-space:nowrap">📂 明細書用データを書き出す</button>
-      </div>
-      <div style="font-size:12px;color:#777;margin-top:6px">※ 普段は不要です。旧マクロ（プゥル・ヴー明細書.xlsm の「データ取り込み」）を使うときだけ書き出してください。</div>
-    </div>
-  </div>
   <div class="card">
     <div style="display:flex;gap:8px;margin-bottom:12px;align-items:center;flex-wrap:wrap">
       <div style="display:flex;gap:6px">
@@ -2740,7 +2774,7 @@ function renderGuideTab(){
     ${step(3,"<strong>客先を選択</strong>　「伝票発行」タブで客先を選びます。納品日がサイクルから自動で入ります。")}
     ${step(4,"<strong>数量を入力</strong>　品目の数量を入力します。Enterで次の行へ進めます。合計は自動計算されます。")}
     ${step(5,"<strong>納品書を発行・印刷</strong>　「納品書を発行する」→「印刷（B5横）」で印刷します。中央の破線で半分に切り、お客様控えと社内控えに分けます。")}
-    ${step(6,"<strong>請求明細書を確認・出力</strong>　「👁 未反映の請求月を見る／今日の分を見る／この期間を見る」で画面確認できます（印刷不要）。問題なければ「📄 未反映→請求明細Excel」でダウンロードします。")}
+    ${step(6,"<strong>請求明細書を確認・出力</strong>　「請求」タブで「👁 未反映の請求月を見る／今日の分を見る／この期間を見る」で画面確認できます（印刷不要）。問題なければ「📄 未反映→請求明細Excel」でダウンロードします。")}
     <div class="guide-note">明細書には同じ請求月の反映済みも含めて月全体が載ります（正式な請求明細のため）。「反映済み」になるのは未反映分だけです。誤って反映した場合は「↩ 反映を取り消す」で戻せます。</div>
     <div class="guide-warn">使い終わったら右上の「ログアウト」を必ず押してください。</div>
   `)}
@@ -2810,23 +2844,21 @@ function renderGuideTab(){
     <div class="guide-warn">データの変更は修正記録に自動で残ります。</div>
   `)}
 
+  ${guideAcc("billing","📄 請求タブ（請求明細書）",`
+    ${step(1,"「請求」タブで請求明細書の確認・Excel書き出しができます。")}
+    ${step(2,"「👁 未反映の請求月を見る」で、まだExcelに反映していない月の明細を画面確認できます。")}
+    ${step(3,"問題なければ「📄 未反映→請求明細Excel」でダウンロードします。")}
+    ${step(4,"締め日ごとの書き出しは、客先・基準年月を選んで「締め日期間で書き出し」を使います。")}
+    <div class="guide-note">締め日・単価の反映ルール・未反映の仕組みは請求タブ内にも記載しています。</div>
+  `)}
+
   ${guideAcc("closing","📅 締め日と明細書シート",`
-    <p style="font-size:14px;color:#555;margin-bottom:12px;line-height:1.7">客先ごとに締め日を設定すると、書き出し時に自動で正しい期間・翌月シートへ切り替わります。</p>
-    <div style="background:#f5f3ef;border-radius:8px;padding:14px;font-size:13px;line-height:2;margin-bottom:12px">
-      <strong>例（書き出し日：5月26日）</strong><br>
-      ・20日締め → 4/21〜5/20（5/21からは6月分）<br>
-      ・25日締め → 4/26〜5/25（5/26からは6月分）<br>
-      ・月末締め → 5/1〜5/31（6/1からは6月分）
-    </div>
-    ${step(1,"客先の「詳細編集」→「締め日」で 20日 / 25日 / 月末 を選び保存します。")}
+    <p style="font-size:14px;color:#555;margin-bottom:12px;line-height:1.7">詳細は「請求」タブをご覧ください。客先ごとに締め日を設定すると、書き出し時に自動で正しい期間・翌月シートへ切り替わります。</p>
+    ${step(1,"客先の「詳細編集」→「締め日」で 15日 / 20日 / 25日 / 月末 を選び保存します。")}
   `)}
 
   ${guideAcc("price","💴 明細書への単価の反映ルール",`
-    <div style="background:#f5f3ef;border-radius:8px;padding:14px;font-size:13px;line-height:2">
-      ・<strong>品名が初めて</strong> → 伝票の単価で登録<br>
-      ・<strong>品名・単価が同じ</strong> → その行に数量を追記<br>
-      ・<strong>品名同じ・単価が違う</strong>（値上がりなど）→ <strong>別行として追加</strong>
-    </div>
+    <p style="font-size:14px;color:#555;margin-bottom:12px;line-height:1.7">詳細は「請求」タブをご覧ください。</p>
     <div class="guide-note">値上がり時は同じ品名が2行になります。それぞれ別単価で集計されます。</div>
   `)}
 
@@ -2835,7 +2867,7 @@ function renderGuideTab(){
     ${step(1,"発行履歴 → 該当伝票の「再印刷」。伝票番号はそのままです。")}
     <div class="guide-sub">数量や金額を間違えた</div>
     ${step(1,"発行履歴 →「修正」→ 内容を直して保存 →「再印刷」。")}
-    ${step(2,"発行履歴の「締め日期間で書き出し」で、該当月の明細書を再出力できます。")}
+    ${step(2,"請求タブの「締め日期間で書き出し」で、該当月の明細書を再出力できます。")}
     <div class="guide-sub">履歴を削除したい</div>
     ${step(1,"発行履歴の「削除」。確認後に消えます。元に戻せません。")}
     <div class="guide-warn">削除前に明細書への書き出しを済ませてください。</div>
