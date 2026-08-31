@@ -417,6 +417,7 @@ const TABS=["伝票発行","発行履歴","📊 売上統計","📂 データ","
 const DAY_NAMES=["日","月","火","水","木","金","土"];
 /** 更新情報: 機能更新と機能的なバグ修正のみ（文言調整・Tipsは載せない）。新しいものを先頭へ。 */
 const APP_UPDATES=[
+  {date:"2026-08",kind:"機能",title:"都度単価の品目",items:["客先詳細で「都度単価」を設定できる","一式など単価が毎回変わる品目を登録品目一覧から発行し、伝票発行時に単価を入力できる"]},
   {date:"2026-08",kind:"機能",title:"請求明細書の複数枚合計",items:["複数枚の場合、各ページ合計はそのまま残し、ご請求金額下に TOTAL（全N枚）を表示（画面・Excel・印刷）"]},
   {date:"2026-08",kind:"機能",title:"請求明細書の画面確認",items:["印刷なしで明細書を画面確認できる","客先一覧から客先を切り替えて確認できる"]},
   {date:"2026-08",kind:"修正",title:"複数PCでの履歴保存",items:["発行履歴をトランザクションでマージ保存し、別PCの発行が消える不具合を修正"]},
@@ -536,6 +537,7 @@ function saveAll(){save("pv_customers",state.customers);save("pv_products",state
 
 const DEFAULT_QTY_TIERS=()=>[{min:1,max:null,price:0}];
 function hasQtyTiers(rec){return rec&&Array.isArray(rec.qtyTiers)&&rec.qtyTiers.length>0;}
+function hasVariablePrice(rec){return!!(rec&&rec.variablePrice&&!hasQtyTiers(rec));}
 function resolveUnitPrice(rec,qty){
   const q=parseFloat(qty)||0;
   if(!hasQtyTiers(rec))return parseFloat(rec?.price)||0;
@@ -752,7 +754,12 @@ function activeItems(){
   return [...listItems,...customItems.map(i=>({...i,code:i.code||"★"}))];
 }
 function buildInvoiceItems(){
-  const items=activeItems().map(i=>({...i,price:hasQtyTiers(i)?resolveUnitPrice(i,i.qty):i.price}));
+  const items=activeItems().map(i=>{
+    const price=hasQtyTiers(i)?resolveUnitPrice(i,i.qty):(parseFloat(i.price)||0);
+    const row={...i,price};
+    delete row.refPrice;
+    return row;
+  });
   if(isKanagawaRodoCustomer(state.issue.customer)&&state.issue.deliverySite){
     return[makeRodoSiteItem(state.issue.deliverySite),...items];
   }
@@ -878,12 +885,15 @@ function renderIssueTab(){
       itemsHtml+=`<tr style="background:#f5f3ff"><td>—</td><td style="font-weight:600">${iss.deliverySite||"（納品先を選択）"}</td><td>—</td><td>—</td><td style="text-align:right">—</td><td></td></tr>`;
     }
     iss.items.forEach((item,i)=>{
-      const unitPrice=hasQtyTiers(item)?resolveUnitPrice(item,item.qty):item.price;
-      const amt=item.qty?(parseInt(item.qty)*unitPrice).toLocaleString():"—";
+      const unitPrice=hasQtyTiers(item)?resolveUnitPrice(item,item.qty):(hasVariablePrice(item)?(parseFloat(item.price)||0):(parseFloat(item.price)||0));
+      const amt=item.qty&&unitPrice?(parseInt(item.qty)*unitPrice).toLocaleString():"—";
+      const refHint=item.refPrice?`参考 ¥${item.refPrice.toLocaleString()}`:"単価";
       const priceHtml=hasQtyTiers(item)
         ?(item.qty?`¥${unitPrice.toLocaleString()}`:`<span style="font-size:11px;color:#888;line-height:1.4" title="${formatTierLabel(item)}">数量により変動</span>`)
-        :`¥${item.price.toLocaleString()}`;
-      itemsHtml+=`<tr style="background:${item.qty?"#fafff8":""}"><td><span class="code-badge">${item.code}</span></td><td>${item.name}${hasQtyTiers(item)?`<div style="font-size:10px;color:#b45309;margin-top:2px">${formatTierLabel(item)}</div>`:""}</td><td>${priceHtml}</td><td><input type="number" min="0" value="${item.qty||""}" style="width:80px;text-align:center" data-qty-idx="${i}" onchange="setItemQty(${i},this.value)" onkeydown="qtyKeyDown(event,${i})"></td><td style="text-align:right;font-weight:${item.qty?600:400}">${item.qty?"¥"+amt:"—"}</td><td></td></tr>`;
+        :hasVariablePrice(item)
+        ?`<input type="number" min="0" value="${item.price||""}" placeholder="${refHint}" data-price-idx="${i}" oninput="setItemPrice(${i},this.value,true)" style="width:90px;padding:6px 8px;border:1px solid #90caf9;border-radius:6px;font-size:13px;text-align:right;background:#f0f7ff">`
+        :`¥${(parseFloat(item.price)||0).toLocaleString()}`;
+      itemsHtml+=`<tr style="background:${item.qty?"#fafff8":""}"><td><span class="code-badge">${item.code}</span></td><td>${item.name}${hasQtyTiers(item)?`<div style="font-size:10px;color:#b45309;margin-top:2px">${formatTierLabel(item)}</div>`:""}${hasVariablePrice(item)?`<div style="font-size:10px;color:#1565c0;margin-top:2px">都度単価</div>`:""}</td><td>${priceHtml}</td><td><input type="number" min="0" value="${item.qty||""}" style="width:80px;text-align:center" data-qty-idx="${i}" onchange="setItemQty(${i},this.value)" onkeydown="qtyKeyDown(event,${i})"></td><td style="text-align:right;font-weight:${item.qty?600:400}">${item.qty&&unitPrice?"¥"+amt:"—"}</td><td></td></tr>`;
     });
     itemsHtml+=`</tbody></table>`;
   }
@@ -985,6 +995,9 @@ function selectCustomer(name){
     if(hasQtyTiers(p)){
       item.qtyTiers=p.qtyTiers.map(t=>({...t}));
       item.price=resolveUnitPrice(p,0);
+    }else if(hasVariablePrice(p)){
+      item.refPrice=p.price||0;
+      item.price="";
     }
     return item;
   });
@@ -1010,6 +1023,19 @@ function setItemQty(i,v){
   const it=state.issue.items[i];
   if(hasQtyTiers(it))it.price=resolveUnitPrice(it,v);
   render();
+}
+function setItemPrice(i,v,refreshTotal){
+  if(!state.issue.items[i])return;
+  state.issue.items[i].price=v;
+  if(refreshTotal){
+    updateIssueTotalsDisplay();
+    const input=document.querySelector(`[data-price-idx="${i}"]`);
+    const tr=input?.closest("tr");
+    const it=state.issue.items[i];
+    const unitPrice=parseFloat(v)||0;
+    const amtTd=tr?.querySelector("td:nth-child(5)");
+    if(amtTd)amtTd.textContent=it.qty&&unitPrice?`¥${(parseInt(it.qty)*unitPrice).toLocaleString()}`:"—";
+  }
 }
 function qtyKeyDown(e,i){
   if(e.key==="Enter"){
@@ -1104,6 +1130,8 @@ async function issueInvoice(){
   if(isKanagawaRodoCustomer(state.issue.customer)&&!state.issue.deliverySite){showToast("納品先を選択してください","error");return;}
   const items=buildInvoiceItems();
   if(!items.some(i=>!i.isDeliverySite&&i.qty&&parseFloat(i.qty)>0)){showToast("数量を入力してください","error");return;}
+  const missingVarPrice=state.issue.items.some(i=>hasVariablePrice(i)&&i.qty&&parseFloat(i.qty)>0&&!(parseFloat(i.price)>0));
+  if(missingVarPrice){showToast("都度単価の品目に単価を入力してください","error");return;}
   const sub=getSubtotal();const mg=state.minG[state.issue.customer]||0;const total=Math.max(sub,mg);
   const invNoKey=state.issue.freeCustomer?"__FREE__":state.issue.customer;
   let id=Date.now();
@@ -1140,7 +1168,11 @@ async function issueInvoice(){
       });
     }catch(e){console.warn("発行ログ保存エラー",e);}
     state.issue.freeCustomer=false;state.issue.memo="";
-    state.issue.items=state.issue.items.map(i=>({...i,qty:""}));
+    state.issue.items=state.issue.items.map(i=>{
+      const row={...i,qty:""};
+      if(hasVariablePrice(i))row.price="";
+      return row;
+    });
     state.issue.customItems=[{name:"",qty:"",price:""}];
     state.issue.customPanelOpen=false;
     state.printInvoice=inv;render();renderPrintModal(true);
@@ -1516,6 +1548,7 @@ function renderCustomerDetail(){
 
   const priceRows=d.prices.map((p,i)=>{
     const tiered=hasQtyTiers(p);
+    const variable=hasVariablePrice(p);
     const tierRows=tiered?`<tr><td colspan="5" style="padding:0 0 12px 0;border:none">
       <div style="background:#fff8f8;border:1px solid #fecaca;border-radius:8px;padding:10px 12px;margin-top:-4px">
         <div style="font-size:12px;font-weight:600;color:#b91c1c;margin-bottom:8px">数量別単価（枚数の下限・上限・単価）</div>
@@ -1531,8 +1564,8 @@ function renderCustomerDetail(){
     return`<tr>
     <td><span class="code-badge">${p.code}</span></td>
     <td><input value="${p.name}" oninput="state.customerDetail.prices[${i}].name=this.value" style="width:100%;padding:4px 8px;border:1px solid #ddd;border-radius:6px;font-size:13px"></td>
-    <td>${tiered?`<span style="font-size:12px;color:#888">数量別</span>`:`<input type="number" value="${p.price}" oninput="state.customerDetail.prices[${i}].price=parseInt(this.value)||0" style="width:80px;padding:4px 8px;border:1px solid #ddd;border-radius:6px;font-size:13px;text-align:right">`}</td>
-    <td><button class="btn-edit" onclick="toggleDetailPriceTier(${i})">${tiered?"固定単価へ":"数量別単価"}</button></td>
+    <td>${tiered?`<span style="font-size:12px;color:#888">数量別</span>`:variable?`<div style="font-size:11px;color:#1565c0;margin-bottom:4px">都度入力</div><input type="number" value="${p.price||""}" placeholder="参考単価" oninput="state.customerDetail.prices[${i}].price=parseInt(this.value)||0" style="width:80px;padding:4px 8px;border:1px solid #90caf9;border-radius:6px;font-size:13px;text-align:right;background:#f0f7ff">`:`<input type="number" value="${p.price}" oninput="state.customerDetail.prices[${i}].price=parseInt(this.value)||0" style="width:80px;padding:4px 8px;border:1px solid #ddd;border-radius:6px;font-size:13px;text-align:right">`}</td>
+    <td>${tiered?`<button class="btn-edit" onclick="setDetailPriceType(${i},'fixed')">固定単価へ</button>`:variable?`<button class="btn-edit" onclick="setDetailPriceType(${i},'fixed')">固定単価へ</button>`:`<div style="display:flex;flex-direction:column;gap:4px"><button class="btn-edit" onclick="setDetailPriceType(${i},'tiered')">数量別単価</button><button class="btn-edit" onclick="setDetailPriceType(${i},'variable')" style="color:#1565c0;border-color:#90caf9">都度単価</button></div>`}</td>
     <td><button class="btn-danger" onclick="removeDetailPrice(${i})">削除</button></td>
   </tr>${tierRows}`;
   }).join("");
@@ -1599,13 +1632,17 @@ function renderCustomerDetail(){
       </div>
       <div style="margin-bottom:10px">
         <label class="lbl">単価の種類</label>
-        <div style="display:flex;gap:8px;margin-top:4px">
+        <div style="display:flex;gap:8px;margin-top:4px;flex-wrap:wrap">
           <button type="button" onclick="setDetailNewPriceMode('fixed')" style="padding:8px 16px;border:1px solid ${addPriceMode==='fixed'?'#1a1a2e':'#ddd'};background:${addPriceMode==='fixed'?'#1a1a2e':'#fff'};color:${addPriceMode==='fixed'?'#e8d5b7':'#333'};border-radius:8px;cursor:pointer;font-size:13px;font-weight:600">固定単価</button>
           <button type="button" onclick="setDetailNewPriceMode('tiered')" style="padding:8px 16px;border:1px solid ${addPriceMode==='tiered'?'#b91c1c':'#ddd'};background:${addPriceMode==='tiered'?'#fef2f2':'#fff'};color:${addPriceMode==='tiered'?'#b91c1c':'#333'};border-radius:8px;cursor:pointer;font-size:13px;font-weight:600">数量別単価</button>
+          <button type="button" onclick="setDetailNewPriceMode('variable')" style="padding:8px 16px;border:1px solid ${addPriceMode==='variable'?'#1565c0':'#ddd'};background:${addPriceMode==='variable'?'#e3f2fd':'#fff'};color:${addPriceMode==='variable'?'#1565c0':'#333'};border-radius:8px;cursor:pointer;font-size:13px;font-weight:600">都度単価</button>
         </div>
       </div>
       ${addPriceMode==="fixed"?`<div style="display:grid;grid-template-columns:120px auto;gap:8px;align-items:end">
         <div><label class="lbl">単価</label><input id="dp-price" type="number" placeholder="0"></div>
+        <button class="btn-primary" onclick="addDetailPrice()" style="margin-top:20px">＋ 追加</button>
+      </div>`:addPriceMode==="variable"?`<div style="display:grid;grid-template-columns:120px auto;gap:8px;align-items:end">
+        <div><label class="lbl">参考単価（任意）</label><input id="dp-price" type="number" placeholder="0"></div>
         <button class="btn-primary" onclick="addDetailPrice()" style="margin-top:20px">＋ 追加</button>
       </div>`:`<div style="background:#fff8f8;border:1px solid #fecaca;border-radius:8px;padding:12px">
         <div style="font-size:12px;font-weight:600;color:#b91c1c;margin-bottom:8px">数量別単価（枚数の下限・上限・単価）</div>
@@ -1666,17 +1703,24 @@ function removeDetailNewPriceTier(ti){
   render();
 }
 
-function toggleDetailPriceTier(i){
+function setDetailPriceType(i,type){
   const p=state.customerDetail.prices[i];
-  if(hasQtyTiers(p)){
+  if(type==="fixed"){
     delete p.qtyTiers;
-    if(!p.price)p.price=0;
-  }else{
+    delete p.variablePrice;
+    if(p.price===undefined||p.price==="")p.price=0;
+  }else if(type==="tiered"){
+    delete p.variablePrice;
     p.qtyTiers=[{min:1,max:null,price:p.price||0}];
     p.price=p.price||0;
+  }else if(type==="variable"){
+    delete p.qtyTiers;
+    p.variablePrice=true;
+    if(p.price===undefined)p.price=0;
   }
   render();
 }
+function toggleDetailPriceTier(i){setDetailPriceType(i,hasQtyTiers(state.customerDetail.prices[i])?"fixed":"tiered");}
 function addDetailPriceTier(i){
   const p=state.customerDetail.prices[i];
   if(!hasQtyTiers(p))p.qtyTiers=[];
@@ -1703,6 +1747,10 @@ function addDetailPrice(){
     if(tiers.some(t=>!t.price&&t.price!==0)){showToast("各段階の単価を入力してください","error");return;}
     row.qtyTiers=tiers;
     row.price=tiers[0].price;
+  }else if(mode==="variable"){
+    const price=parseInt(document.getElementById("dp-price")?.value)||0;
+    row.variablePrice=true;
+    row.price=price;
   }else{
     const price=parseInt(document.getElementById("dp-price")?.value)||0;
     row.price=price;
@@ -1743,6 +1791,7 @@ function saveCustomerDetail(){
   state.prices.push(...d.prices.map(p=>{
     const row={...p,customer:d.name};
     if(hasQtyTiers(row))row.price=row.qtyTiers[0].price;
+    if(hasVariablePrice(row))delete row.qtyTiers;
     return row;
   }));
   state.customerDetail=null;
@@ -1865,7 +1914,7 @@ function renderPriceTab(){
   const rows=filtered.map((p,fi)=>{
     const ri=state.prices.indexOf(p);
     if(state.editingPrice?.idx===ri)return`<tr><td>${p.customer}</td><td><span class="code-badge">${p.code}</span></td><td><input value="${state.editingPrice.name}" onchange="state.editingPrice.name=this.value" style="padding:4px 8px;border:1px solid #ddd;border-radius:6px"></td><td style="text-align:right"><input type="number" value="${state.editingPrice.price}" onchange="state.editingPrice.price=parseInt(this.value)||0" style="width:80px;padding:4px 8px;border:1px solid #ddd;border-radius:6px;text-align:right"></td><td><button class="btn-save" onclick="savePrice(${ri})">保存</button><button class="btn-cancel" onclick="state.editingPrice=null;render()">取消</button></td></tr>`;
-    return`<tr><td>${p.customer}</td><td><span class="code-badge">${p.code}</span></td><td>${p.name}${hasQtyTiers(p)?`<span style="font-size:10px;background:#fef3c7;color:#92400e;padding:1px 6px;border-radius:4px;margin-left:4px">数量別</span>`:""}</td><td style="text-align:right">${hasQtyTiers(p)?`<span style="font-size:11px;color:#666;line-height:1.5">${formatTierLabel(p)}</span>`:`¥${p.price.toLocaleString()}`}</td><td><button class="btn-edit" onclick="state.editingPrice={idx:${ri},name:'${p.name.replace(/'/g,"\\'")}',price:${p.price}};render()">編集</button><button class="btn-danger" onclick="deletePrice(${ri})">削除</button></td></tr>`;
+    return`<tr><td>${p.customer}</td><td><span class="code-badge">${p.code}</span></td><td>${p.name}${hasQtyTiers(p)?`<span style="font-size:10px;background:#fef3c7;color:#92400e;padding:1px 6px;border-radius:4px;margin-left:4px">数量別</span>`:""}${hasVariablePrice(p)?`<span style="font-size:10px;background:#e3f2fd;color:#1565c0;padding:1px 6px;border-radius:4px;margin-left:4px">都度単価</span>`:""}</td><td style="text-align:right">${hasQtyTiers(p)?`<span style="font-size:11px;color:#666;line-height:1.5">${formatTierLabel(p)}</span>`:hasVariablePrice(p)?`<span style="font-size:12px;color:#1565c0">都度入力</span>${p.price?`<div style="font-size:11px;color:#888">参考 ¥${p.price.toLocaleString()}</div>`:""}`:`¥${p.price.toLocaleString()}`}</td><td><button class="btn-edit" onclick="state.editingPrice={idx:${ri},name:'${p.name.replace(/'/g,"\\'")}',price:${p.price}};render()">編集</button><button class="btn-danger" onclick="deletePrice(${ri})">削除</button></td></tr>`;
   }).join("");
   const prodOpts=state.products.map(p=>`<option value="${p.code}">${p.code} ${p.name}</option>`).join("");
   const custOpts2=state.customers.map(c=>`<option value="${c.name}">${c.name}</option>`).join("");
@@ -2723,7 +2772,7 @@ function renderGuideTab(){
     ${step(2,"「📋 商品リストから追加」で商品管理の商品を選んで追加できます。")}
     <div class="guide-sub">リストにない客先</div>
     ${step(1,"客先のドロップダウン最下部「＋ リスト外の客先を入力」を選び、名前を手入力します。")}
-    <div class="guide-note">数量別単価の品目は、入力した数量に応じて単価が自動で切り替わります。</div>
+    <div class="guide-note">数量別単価の品目は、入力した数量に応じて単価が自動で切り替わります。都度単価の品目（一式など）は、客先詳細で設定し、発行時に単価を入力します。</div>
   `)}
 
   ${guideAcc("rodo","🏢 神奈川労働局（納品先の選択）",`
@@ -2757,6 +2806,7 @@ function renderGuideTab(){
     <div class="guide-sub">商品・単価</div>
     ${step(1,"商品管理で品番・品名を追加し、単価対応表または客先詳細で単価を登録します。")}
     ${step(2,"カーテンなど枚数で単価が変わる品目は「数量別単価」を使います。")}
+    ${step(3,"一式など単価が毎回変わる品目は「都度単価」を使います（発行時に単価を入力）。")}
     <div class="guide-warn">データの変更は修正記録に自動で残ります。</div>
   `)}
 
@@ -3143,6 +3193,9 @@ function selectCustomerFromSidebar(customerName,dateStr){
     if(hasQtyTiers(p)){
       item.qtyTiers=p.qtyTiers.map(t=>({...t}));
       item.price=resolveUnitPrice(p,0);
+    }else if(hasVariablePrice(p)){
+      item.refPrice=p.price||0;
+      item.price="";
     }
     return item;
   });
