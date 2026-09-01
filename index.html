@@ -417,6 +417,7 @@ const TABS=["伝票発行","発行履歴","📊 売上統計","📂 データ","
 const DAY_NAMES=["日","月","火","水","木","金","土"];
 /** 更新情報: 機能更新と機能的なバグ修正のみ（文言調整・Tipsは載せない）。新しいものを先頭へ。 */
 const APP_UPDATES=[
+  {date:"2026-09",kind:"機能",title:"納品サイクル「設定なし」",items:["客先管理で納品サイクルに「設定なし」を選べる","一覧ではグレー表示で区別できる"]},
   {date:"2026-08",kind:"機能",title:"売上統計の品目別表示",items:["売上統計に「品目別」を追加","客先・月を選んで品目ごとの数量・金額を確認できる"]},
   {date:"2026-08",kind:"機能",title:"古い未反映の請求対象外",items:["今月より前の納品分で、まだ未反映の伝票を請求対象外にできる","発行履歴は残り、未反映の件数・Excel書き出し対象から外れる"]},
   {date:"2026-08",kind:"機能",title:"請求タブを追加",items:["データとバックアップの間に「請求」タブを追加","請求明細書の確認・Excel書き出し・締め日・単価の反映ルールをまとめて表示"]},
@@ -590,6 +591,12 @@ function getCycleForCustomer(name){
   const n=normName(name);
   for(const k in DELIVERY_CYCLES){if(DELIVERY_CYCLES[k]&&normName(k)===n)return DELIVERY_CYCLES[k];}
   return "";
+}
+function formatCycleLabel(cycle){return cycle&&String(cycle).trim()?String(cycle).trim():"設定なし";}
+function formatCycleLabelHtml(cycle){
+  const label=formatCycleLabel(cycle);
+  if(label==="設定なし")return`<span style="color:#9e9e9e;font-weight:500">設定なし</span>`;
+  return label;
 }
 // デフォルトは祝日でも納品（skipHolidays[name]===true のときだけ祝日を飛ばす）
 function skipsHolidays(name){
@@ -1528,10 +1535,12 @@ function renderCustomerTab(){
   const filtered=state.customers.filter(c=>!search||c.name.includes(search)||c.id.includes(search));
   const rows=filtered.map(c=>{
     const cd=state.closingDays[c.name];const cdLabel=cd===0?"月末〆":cd?cd+"日〆":"—";
-    return`<tr><td style="width:70px"><span class="code-badge">${c.id}</span></td><td><a href="#" onclick="openCustomerDetail('${c.id}');return false;" style="color:#1a73e8;text-decoration:none;font-weight:500">${c.name}</a></td><td style="width:120px">${state.minG[c.name]>0?"¥"+(state.minG[c.name]).toLocaleString():"—"}</td><td style="width:120px">${(getCycleForCustomer(c.name)||"—")}${skipsHolidays(c.name)?'<div style="font-size:10px;color:#b45309">祝日飛ばす</div>':""}</td><td style="width:90px">${cdLabel}</td><td style="width:160px"><div style="display:flex;gap:6px"><button class="btn-edit" onclick="openCustomerDetail('${c.id}')">詳細編集</button><button class="btn-danger" onclick="deleteCustomer('${c.id}')">削除</button></div></td></tr>`;
+    return`<tr><td style="width:70px"><span class="code-badge">${c.id}</span></td><td><a href="#" onclick="openCustomerDetail('${c.id}');return false;" style="color:#1a73e8;text-decoration:none;font-weight:500">${c.name}</a></td><td style="width:120px">${state.minG[c.name]>0?"¥"+(state.minG[c.name]).toLocaleString():"—"}</td><td style="width:120px">${formatCycleLabelHtml(getCycleForCustomer(c.name))}${skipsHolidays(c.name)?'<div style="font-size:10px;color:#b45309">祝日飛ばす</div>':""}</td><td style="width:90px">${cdLabel}</td><td style="width:160px"><div style="display:flex;gap:6px"><button class="btn-edit" onclick="openCustomerDetail('${c.id}')">詳細編集</button><button class="btn-danger" onclick="deleteCustomer('${c.id}')">削除</button></div></td></tr>`;
   }).join("");
   if(state.showAddCustomer&&!state.newCustomer.id){const ids=state.customers.map(c=>parseInt(c.id)||0);state.newCustomer.id=String(Math.max(...ids)+1).padStart(3,"0");}
   const DAY_BTN_NEW=["月","火","水","木","金","土","日"];
+  const noCycleNew=!state.newCustomer.cycle;
+  const noneBtnNew=`<button type="button" onclick="setNewCycleNone()" style="padding:4px 10px;border:1px solid ${noCycleNew?"#1a1a2e":"#ddd"};background:${noCycleNew?"#1a1a2e":"#fff"};color:${noCycleNew?"#e8d5b7":"#333"};border-radius:6px;cursor:pointer;font-size:13px;font-weight:600">設定なし</button>`;
   const cycleBtnsNew=DAY_BTN_NEW.map(day=>{const a=state.newCustomer.cycle.includes(day);return`<button type="button" onclick="toggleNewCycleDay('${day}')" style="padding:4px 10px;border:1px solid ${a?"#1a1a2e":"#ddd"};background:${a?"#1a1a2e":"#fff"};color:${a?"#e8d5b7":"#333"};border-radius:6px;cursor:pointer;font-size:13px">${day}</button>`;}).join("");
   const addForm=state.showAddCustomer?`<div class="card" style="background:#fffef7;margin-bottom:16px">
     <div style="display:grid;grid-template-columns:80px 1fr 160px;gap:10px;margin-bottom:12px">
@@ -1539,7 +1548,7 @@ function renderCustomerTab(){
       <div><label class="lbl">客先名</label><input placeholder="会社名" value="${state.newCustomer.name}" oninput="state.newCustomer.name=this.value"></div>
       <div><label class="lbl">最低保証金額</label><input type="number" value="${state.newCustomer.mg||""}" oninput="state.newCustomer.mg=parseInt(this.value)||0" placeholder="0"></div>
     </div>
-    <div style="margin-bottom:12px"><label class="lbl">納品サイクル</label><div style="display:flex;gap:6px;margin-top:4px">${cycleBtnsNew}</div><div style="font-size:12px;color:#888;margin-top:4px">選択中：<strong>${state.newCustomer.cycle||"未設定"}</strong></div></div>
+    <div style="margin-bottom:12px"><label class="lbl">納品サイクル</label><div style="display:flex;gap:6px;margin-top:4px;flex-wrap:wrap">${noneBtnNew}${cycleBtnsNew}</div><div style="font-size:12px;color:#888;margin-top:4px">選択中：<strong>${formatCycleLabelHtml(state.newCustomer.cycle)}</strong></div></div>
     <button class="btn-primary" onclick="addCustomer()">追加</button></div>`:"";
   return`<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px"><h2 style="font-size:20px;font-weight:600;color:#1a1a2e;margin:0">客先管理</h2><button class="btn-primary" onclick="state.showAddCustomer=!state.showAddCustomer;state.newCustomer={id:'',name:'',cycle:'',mg:''};render()">＋ 客先追加</button></div>
   ${addForm}<div class="card">
@@ -1567,6 +1576,8 @@ function openCustomerDetail(id){
 function renderCustomerDetail(){
   const d=state.customerDetail;
   const DAY_BTNS=["月","火","水","木","金","土","日"];
+  const noCycle=!d.cycle;
+  const noneCycleBtn=`<button type="button" onclick="clearDeliveryCycle()" style="padding:6px 12px;border:1px solid ${noCycle?"#1a1a2e":"#ddd"};background:${noCycle?"#1a1a2e":"#fff"};color:${noCycle?"#e8d5b7":"#333"};border-radius:6px;cursor:pointer;font-size:14px;font-weight:600">設定なし</button>`;
   const cycleButtons=DAY_BTNS.map(day=>{
     const active=d.cycle.includes(day);
     return`<button onclick="toggleCycleDay('${day}')" style="padding:6px 12px;border:1px solid ${active?"#1a1a2e":"#ddd"};background:${active?"#1a1a2e":"#fff"};color:${active?"#e8d5b7":"#333"};border-radius:6px;cursor:pointer;font-size:14px">${day}</button>`;
@@ -1633,8 +1644,9 @@ function renderCustomerDetail(){
 
   <div class="card">
     <h3>納品サイクル</h3>
-    <div style="display:flex;gap:8px;flex-wrap:wrap">${cycleButtons}</div>
-    <div style="margin-top:10px;font-size:13px;color:#888">現在の設定：<strong>${d.cycle||"未設定"}</strong></div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">${noneCycleBtn}${cycleButtons}</div>
+    <div style="margin-top:10px;font-size:13px;color:#888">現在の設定：<strong>${formatCycleLabelHtml(d.cycle)}</strong></div>
+    <div style="margin-top:6px;font-size:12px;color:#888">「設定なし」は未発行のお知らせ・納品日の自動提案の対象外です。</div>
     <div style="margin-top:16px">
       <label class="lbl">祝日の扱い</label>
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:4px">
@@ -1695,6 +1707,11 @@ function toggleCycleDay(day){
     let c=d.cycle+day;
     d.cycle=order.filter(x=>c.includes(x)).join("");
   }
+  render();
+}
+function clearDeliveryCycle(){
+  if(!state.customerDetail)return;
+  state.customerDetail.cycle="";
   render();
 }
 
@@ -1891,6 +1908,7 @@ function addCustomer(){
 }
 
 function toggleNewCycleDay(day){const order=["月","火","水","木","金","土","日"];let c=state.newCustomer.cycle;if(c.includes(day)){c=c.replace(day,"");}else{c=c+day;}state.newCustomer.cycle=order.filter(x=>c.includes(x)).join("");render();}
+function setNewCycleNone(){state.newCustomer.cycle="";render();}
 
 // --- Product Tab ---
 function renderProductTab(){
