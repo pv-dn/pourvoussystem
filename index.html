@@ -125,6 +125,7 @@ const FS_KEYS = {
   pv_cycles: "cycles",
   pv_skip_holidays: "skipHolidays",
   pv_unissued_none: "unissuedNone",
+  pv_pending_issues: "pendingIssues",
   pv_data_edit_logs: "dataEditLogs",
   pv_adminpass: "adminpass",
   pv_githubPAT: "githubPAT"
@@ -183,7 +184,7 @@ window._fsLoad = async function(k) {
 };
 
 // リアルタイム同期（ログイン後に開始）
-const watchKeys = ["customers","products","prices","history","invoiceCounters","closingDays","minG","cycles","skipHolidays","unissuedNone","dataEditLogs"];
+const watchKeys = ["customers","products","prices","history","invoiceCounters","closingDays","minG","cycles","skipHolidays","unissuedNone","pendingIssues","dataEditLogs"];
 window._startRealtimeSync = function() {
 if(window._realtimeSyncStarted)return;
 window._realtimeSyncStarted=true;
@@ -211,6 +212,9 @@ watchKeys.forEach(fsKey => {
         }
         else if (localKey === "pv_skip_holidays") st.skipHolidays = val;
         else if (localKey === "pv_unissued_none") st.unissuedNone = val;
+        else if (localKey === "pv_pending_issues") {
+          if (!window._savingPending) st.pendingIssues = Array.isArray(val) ? val : [];
+        }
         else if (localKey === "pv_data_edit_logs") st.dataEditLogs = Array.isArray(val)?val:[];
       }
       if (st && !st.showPrint && !st.editingHistory && !st.customerDetail && typeof render === "function") {
@@ -361,6 +365,22 @@ td{padding:9px 8px;border-bottom:.5px solid #f0ede8;font-size:13px;overflow:hidd
 .unissued-sidebar-badge.yesterday{background:#fee2e2;color:#991b1b}
 .unissued-sidebar-none{margin-top:8px;width:100%;background:#f8f7f4;color:#666;border:1px solid #e0ddd6;border-radius:6px;padding:5px 8px;font-size:11px;cursor:pointer;font-family:inherit}
 .unissued-sidebar-none:hover{background:#eee;color:#333}
+.unissued-sidebar-stack{display:flex;flex-direction:column;gap:12px}
+.pending-sidebar-card{background:#fff;border-radius:12px;border:2px solid #93c5fd;box-shadow:0 4px 16px rgba(37,99,235,.1);overflow:hidden}
+.pending-sidebar-head{background:linear-gradient(135deg,#1d4ed8,#2563eb);color:#fff;padding:14px 16px}
+.pending-sidebar-head h3{font-size:15px;font-weight:700;margin:0 0 4px}
+.pending-sidebar-head p{font-size:12px;margin:0;opacity:.9}
+.pending-sidebar-list{padding:8px}
+.pending-sidebar-empty{padding:12px 14px;font-size:12px;color:#888;text-align:center;line-height:1.5}
+.pending-sidebar-item{display:block;width:100%;text-align:left;background:#fff;border:1px solid #e8f0fe;border-radius:8px;padding:10px 12px;margin-bottom:8px;font-family:inherit}
+.pending-sidebar-item-main{display:block;width:100%;text-align:left;background:transparent;border:none;padding:0;cursor:pointer;font-family:inherit}
+.pending-sidebar-item-main:hover .pending-sidebar-name{color:#1d4ed8}
+.pending-sidebar-item:last-child{margin-bottom:0}
+.pending-sidebar-name{font-size:13px;font-weight:600;color:#1a1a2e;line-height:1.4;margin-bottom:6px;word-break:break-all}
+.pending-sidebar-meta{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:11px;color:#666}
+.pending-sidebar-badge{padding:2px 8px;border-radius:999px;font-size:11px;font-weight:700;flex-shrink:0;background:#dbeafe;color:#1e40af}
+.pending-sidebar-del{margin-top:8px;width:100%;background:#f8f7f4;color:#666;border:1px solid #e0ddd6;border-radius:6px;padding:5px 8px;font-size:11px;cursor:pointer;font-family:inherit}
+.pending-sidebar-del:hover{background:#fee;color:#c62828;border-color:#fcc}
 .app-layout .content{flex:1;min-width:0;max-width:none;margin:0;padding:24px 0 32px}
 @media(max-width:960px){
   .app-layout{flex-direction:column;padding:0 16px}
@@ -405,7 +425,7 @@ td{padding:9px 8px;border-bottom:.5px solid #f0ede8;font-size:13px;overflow:hidd
 <div id="update-info-modal" class="overlay hidden" onclick="if(event.target===this)closeUpdateInfo()"></div>
 <div id="toast" class="toast hidden"></div>
 <div class="app-layout" id="app-layout">
-  <aside id="unissued-sidebar" class="unissued-sidebar" aria-label="未発行一覧"></aside>
+  <aside id="unissued-sidebar" class="unissued-sidebar" aria-label="未発行・あとで発行"></aside>
   <div class="content" id="main"></div>
 </div>
 <div id="print-modal" class="overlay hidden"></div>
@@ -417,6 +437,7 @@ const TABS=["伝票発行","発行履歴","📊 売上統計","📂 データ","
 const DAY_NAMES=["日","月","火","水","木","金","土"];
 /** 更新情報: 機能更新と機能的なバグ修正のみ（文言調整・Tipsは載せない）。新しいものを先頭へ。 */
 const APP_UPDATES=[
+  {date:"2026-09",kind:"機能",title:"あとで発行",items:["納品日が未定でも客先・品目・数量を保存できる","左サイドバーに常時表示。タップで復元し、納品日を入れて本発行できる","発行なし・未発行（サイクル）とは別の下書き"]},
   {date:"2026-09",kind:"機能",title:"納品サイクル「設定なし」",items:["客先管理で納品サイクルに「設定なし」を選べる","一覧ではグレー表示で区別できる"]},
   {date:"2026-08",kind:"機能",title:"売上統計の品目別表示",items:["売上統計に「品目別」を追加","客先・月を選んで品目ごとの数量・金額を確認できる"]},
   {date:"2026-08",kind:"機能",title:"古い未反映の請求対象外",items:["今月より前の納品分で、まだ未反映の伝票を請求対象外にできる","発行履歴は残り、未反映の件数・Excel書き出し対象から外れる"]},
@@ -482,9 +503,10 @@ let state={
   closingDays:load("pv_closing_days",{}),
   skipHolidays:load("pv_skip_holidays",{}),
   unissuedNone:load("pv_unissued_none",{}),
+  pendingIssues:load("pv_pending_issues",[]),
   dataEditLogs:load("pv_data_edit_logs",[]),
   minG:load("pv_min",INIT_MIN),
-  issue:{customer:"",freeCustomer:false,deliveryDate:"",deliverySite:"",items:[],customItems:[{name:"",qty:"",price:""}],useCustom:false,customPanelOpen:false,memo:""},
+  issue:{customer:"",freeCustomer:false,deliveryDate:"",deliverySite:"",items:[],customItems:[{name:"",qty:"",price:""}],useCustom:false,customPanelOpen:false,memo:"",pendingId:null},
   histSearch:"",
   custSearch:"",
   editingCustomer:null,
@@ -701,6 +723,9 @@ function renameCustomerData(oldName,newName){
   if(state.skipHolidays&&state.skipHolidays[oldName]!==undefined){state.skipHolidays[newName]=state.skipHolidays[oldName];delete state.skipHolidays[oldName];}
   state.prices=state.prices.map(p=>p.customer===oldName?{...p,customer:newName}:p);
   state.history=state.history.map(h=>h.customer===oldName?{...h,customer:newName}:h);
+  if(state.pendingIssues&&state.pendingIssues.length){
+    state.pendingIssues=state.pendingIssues.map(p=>p.customer===oldName?{...p,customer:newName}:p);
+  }
   migrateUnissuedNoneKeys(oldName,newName);
 }
 function applyShakoCustomerNameFix(){
@@ -716,6 +741,7 @@ function applyShakoCustomerNameFix(){
   save("pv_prices",state.prices);
   save("pv_prices",state.prices);
   save("pv_unissued_none",state.unissuedNone||{});
+  save("pv_pending_issues",state.pendingIssues||[]);
   saveCycles();
   if(window._fsSave){
     window._fsSave("pv_customers",state.customers).catch(()=>{});
@@ -724,6 +750,7 @@ function applyShakoCustomerNameFix(){
     window._fsSave("pv_skip_holidays",state.skipHolidays||{}).catch(()=>{});
     window._fsSave("pv_prices",state.prices).catch(()=>{});
     window._fsSave("pv_unissued_none",state.unissuedNone||{}).catch(()=>{});
+    window._fsSave("pv_pending_issues",state.pendingIssues||[]).catch(()=>{});
   }
   window._issuingInvoice=true;
   saveHistoryMerged(state.history).catch(()=>{}).finally(()=>setTimeout(()=>{window._issuingInvoice=false;},2000));
@@ -777,6 +804,121 @@ function buildInvoiceItems(){
 }
 function getTotal(){const sub=getSubtotal();const mg=state.minG[state.issue.customer]||0;return Math.max(sub,mg);}
 
+function getPendingIssuesSorted(){
+  return [...(state.pendingIssues||[])].sort((a,b)=>new Date(b.updatedAt||b.savedAt||0)-new Date(a.updatedAt||a.savedAt||0));
+}
+function pendingIssueLineCount(p){
+  let n=0;
+  (p.items||[]).forEach(i=>{if(i.qty&&parseFloat(i.qty)>0)n++;});
+  (p.customItems||[]).forEach(i=>{if(i.name&&i.qty&&parseFloat(i.qty)>0)n++;});
+  return n;
+}
+function snapshotPendingFromIssue(){
+  return{
+    customer:state.issue.customer,
+    freeCustomer:!!state.issue.freeCustomer,
+    deliveryDate:state.issue.deliveryDate||"",
+    deliverySite:state.issue.deliverySite||"",
+    items:state.issue.items.map(i=>{
+      const row={...i};
+      if(row.qtyTiers)row.qtyTiers=row.qtyTiers.map(t=>({...t}));
+      return row;
+    }),
+    customItems:(state.issue.customItems||[]).map(i=>({...i})),
+    useCustom:!!state.issue.useCustom,
+    customPanelOpen:!!state.issue.customPanelOpen,
+    memo:state.issue.memo||"",
+    savedBy:window._userShortId||"",
+    savedByName:window._userDisplayName||""
+  };
+}
+function issueHasQty(){
+  const listQty=state.issue.items.some(i=>i.qty&&parseFloat(i.qty)>0);
+  const customQty=(state.issue.customItems||[]).some(i=>i.name&&i.qty&&parseFloat(i.qty)>0);
+  return listQty||customQty;
+}
+async function saveIssueForLater(){
+  if(window._savingPending){showToast("保存中です","error");return;}
+  if(!state.issue.customer&&!state.issue.freeCustomer){showToast("客先を選択してください","error");return;}
+  if(state.issue.freeCustomer&&!state.issue.customer.trim()){showToast("客先名を入力してください","error");return;}
+  if(isKanagawaRodoCustomer(state.issue.customer)&&!state.issue.deliverySite){showToast("納品先を選択してください","error");return;}
+  if(!issueHasQty()){showToast("数量を入力してください","error");return;}
+  const snap=snapshotPendingFromIssue();
+  const nowIso=new Date().toISOString();
+  const existingId=state.issue.pendingId;
+  if(existingId){
+    const idx=(state.pendingIssues||[]).findIndex(x=>x.id===existingId);
+    if(idx>=0){
+      const prev=state.pendingIssues[idx];
+      state.pendingIssues[idx]={...snap,id:existingId,savedAt:prev.savedAt||nowIso,updatedAt:nowIso};
+    }else{
+      state.pendingIssues=[{...snap,id:existingId,savedAt:nowIso,updatedAt:nowIso},...(state.pendingIssues||[])];
+    }
+  }else{
+    let id=Date.now();
+    while((state.pendingIssues||[]).some(x=>x.id===id))id++;
+    if(!state.pendingIssues)state.pendingIssues=[];
+    state.pendingIssues.unshift({...snap,id,savedAt:nowIso,updatedAt:nowIso});
+  }
+  window._savingPending=true;
+  try{
+    save("pv_pending_issues",state.pendingIssues);
+    showToast("あとで発行に保存しました");
+    const cust=state.issue.customer;
+    const free=state.issue.freeCustomer;
+    state.issue.pendingId=null;
+    if(free){
+      state.issue.memo="";
+      state.issue.items=[];
+      resetIssueCustomItems();
+      state.issue.useCustom=true;
+      state.issue.customPanelOpen=true;
+      render();
+    }else if(cust){
+      selectCustomer(cust);
+    }else{
+      render();
+    }
+  }catch(e){
+    console.error("あとで発行保存エラー",e);
+    showToast("保存に失敗しました","error");
+    render();
+  }finally{
+    setTimeout(()=>{window._savingPending=false;},800);
+  }
+}
+function openPendingIssue(id){
+  const p=(state.pendingIssues||[]).find(x=>x.id===id);
+  if(!p)return;
+  state.issue={
+    customer:p.customer||"",
+    freeCustomer:!!p.freeCustomer,
+    deliveryDate:p.deliveryDate||"",
+    deliverySite:p.deliverySite||"",
+    items:JSON.parse(JSON.stringify(p.items||[])),
+    customItems:JSON.parse(JSON.stringify(p.customItems&&p.customItems.length?p.customItems:[{name:"",qty:"",price:""}])),
+    useCustom:!!p.useCustom,
+    customPanelOpen:!!p.customPanelOpen,
+    memo:p.memo||"",
+    pendingId:p.id
+  };
+  state.tab=0;
+  render();
+  if(state.issue.deliveryDate){
+    setTimeout(()=>{const el=document.querySelector('input[type="date"]');if(el)el.focus();},50);
+  }else{
+    focusFirstQtyInput();
+  }
+}
+function deletePendingIssue(id){
+  if(!confirm("この「あとで発行」を削除しますか？"))return;
+  state.pendingIssues=(state.pendingIssues||[]).filter(x=>x.id!==id);
+  if(state.issue.pendingId===id)state.issue.pendingId=null;
+  save("pv_pending_issues",state.pendingIssues);
+  showToast("削除しました");
+  render();
+}
+
 function showToast(msg,type="success"){const t=document.getElementById("toast");t.textContent=msg;t.style.background=type==="success"?"#2d6a4f":"#c62828";t.classList.remove("hidden");setTimeout(()=>t.classList.add("hidden"),2500);}
 
 // --- Render ---
@@ -816,8 +958,11 @@ function updateUnissuedAlerts(){
     if(layout)layout.classList.remove("has-sidebar");
     return;
   }
+  if(layout)layout.classList.add("has-sidebar");
+  if(sidebar)sidebar.style.display="block";
   const alerts=getUnissuedAlerts();
   const count=alerts.length;
+  let unissuedCard="";
   if(count>0){
     const todayCount=alerts.filter(a=>a.label==="本日").length;
     const tomorrowCount=alerts.filter(a=>a.label==="明日").length;
@@ -827,13 +972,10 @@ function updateUnissuedAlerts(){
     if(todayCount)parts.push(`本日${todayCount}件`);
     if(tomorrowCount)parts.push(`明日${tomorrowCount}件`);
     const detail=parts.join("・");
-    if(layout)layout.classList.add("has-sidebar");
-    if(sidebar){
-      sidebar.style.display="block";
-      const items=alerts.map(a=>{
-        const cAttr=String(a.customer||"").replace(/&/g,"&amp;").replace(/"/g,"&quot;").replace(/</g,"&lt;");
-        const dAttr=String(a.dateStr||"").replace(/&/g,"&amp;").replace(/"/g,"&quot;");
-        return`
+    const items=alerts.map(a=>{
+      const cAttr=String(a.customer||"").replace(/&/g,"&amp;").replace(/"/g,"&quot;").replace(/</g,"&lt;");
+      const dAttr=String(a.dateStr||"").replace(/&/g,"&amp;").replace(/"/g,"&quot;");
+      return`
         <div class="unissued-sidebar-item">
           <button type="button" class="unissued-sidebar-item-main" data-customer="${cAttr}" data-datestr="${dAttr}" onclick="selectCustomerFromSidebar(this.dataset.customer,this.dataset.datestr)">
             <div class="unissued-sidebar-name">${cAttr}</div>
@@ -844,19 +986,40 @@ function updateUnissuedAlerts(){
           </button>
           <button type="button" class="unissued-sidebar-none" data-customer="${cAttr}" data-datestr="${dAttr}" onclick="event.stopPropagation();markUnissuedNone(this.dataset.customer,this.dataset.datestr)">発行なし</button>
         </div>`;
-      }).join("");
-      sidebar.innerHTML=`<div class="unissued-sidebar-card">
+    }).join("");
+    unissuedCard=`<div class="unissued-sidebar-card">
         <div class="unissued-sidebar-head">
           <h3>⚠️ 未発行 ${count}件</h3>
           <p>${detail}</p>
         </div>
         <div class="unissued-sidebar-list">${items}</div>
       </div>`;
-    }
-  }else{
-    if(sidebar)sidebar.style.display="none";
-    if(layout)layout.classList.remove("has-sidebar");
   }
+  const pending=getPendingIssuesSorted();
+  const pendingCount=pending.length;
+  const pendingItems=pendingCount?pending.map(p=>{
+    const cAttr=String(p.customer||"").replace(/&/g,"&amp;").replace(/"/g,"&quot;").replace(/</g,"&lt;");
+    const lineCount=pendingIssueLineCount(p);
+    const dateLabel=p.deliveryDate?fmtDate(fromInput(p.deliveryDate)):"納品日未定";
+    return`<div class="pending-sidebar-item">
+      <button type="button" class="pending-sidebar-item-main" onclick="openPendingIssue(${p.id})">
+        <div class="pending-sidebar-name">${cAttr}</div>
+        <div class="pending-sidebar-meta">
+          <span>${dateLabel}・${lineCount}品目</span>
+          <span class="pending-sidebar-badge">あとで</span>
+        </div>
+      </button>
+      <button type="button" class="pending-sidebar-del" onclick="event.stopPropagation();deletePendingIssue(${p.id})">削除</button>
+    </div>`;
+  }).join(""):`<div class="pending-sidebar-empty">保存済みの伝票はありません</div>`;
+  const pendingCard=`<div class="pending-sidebar-card">
+    <div class="pending-sidebar-head">
+      <h3>📋 あとで発行 ${pendingCount}件</h3>
+      <p>納品日未定の下書き。タップで復元</p>
+    </div>
+    <div class="pending-sidebar-list">${pendingItems}</div>
+  </div>`;
+  if(sidebar)sidebar.innerHTML=`<div class="unissued-sidebar-stack">${unissuedCard}${pendingCard}</div>`;
 }
 
 function setTab(i){
@@ -928,8 +1091,9 @@ function renderIssueTab(){
     </div>
   </div>`;
 
-  const freeInput=iss.freeCustomer?`<input type="text" id="free-customer-input" placeholder="客先名を入力してください" value="${String(iss.customer||"").replace(/&/g,"&amp;").replace(/"/g,"&quot;").replace(/</g,"&lt;")}" oninput="state.issue.customer=this.value" style="margin-top:6px;width:100%;padding:9px 12px;border:1px solid #1a73e8;border-radius:8px;font-size:14px">`:""
+  const freeInput=iss.freeCustomer?`<input type="text" id="free-customer-input" placeholder="客先名を入力してください" value="${String(iss.customer||"").replace(/&/g,"&amp;").replace(/"/g,"&quot;").replace(/</g,"&lt;")}" oninput="state.issue.customer=this.value;state.issue.pendingId=null" style="margin-top:6px;width:100%;padding:9px 12px;border:1px solid #1a73e8;border-radius:8px;font-size:14px">`:""
   const custDisplayName=iss.freeCustomer?"＋ リスト外の客先を入力":iss.customer
+  const pendingBanner=iss.pendingId?`<div style="margin-bottom:12px;padding:10px 14px;background:#fff8e1;border:1px solid #ffe082;border-radius:8px;font-size:13px;color:#5d4037;line-height:1.6">📌 <strong>あとで発行</strong>から読み込み中です。納品日を入力して「納品書を発行する」を押してください。</div>`:"";
   return`<div style="position:sticky;top:0;z-index:100;background:#f8f7f4;padding:16px 0 8px">
   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;gap:12px;flex-wrap:wrap">
     <h2 style="font-size:20px;font-weight:600;color:#1a1a2e;margin:0">納品書発行</h2>
@@ -952,11 +1116,13 @@ function renderIssueTab(){
   </div>
 </div>
   ${(iss.customer||iss.freeCustomer)?`<div class="card">
+    ${pendingBanner}
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
       <h3 style="margin:0">品目・数量入力</h3>
       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
         <button onclick="addCustomItem()" style="background:#e8f0fe;border:1px solid #a8c0f0;border-radius:6px;padding:6px 12px;cursor:pointer;font-size:12px;color:#1a1a2e">📝 自由入力で追加</button>
         <button onclick="showProductPicker()" style="background:#e8f5e9;border:1px solid #a5d6a7;border-radius:6px;padding:6px 12px;cursor:pointer;font-size:12px;color:#1a1a2e">📋 商品リストから追加</button>
+        <button onclick="saveIssueForLater()" style="background:#e3f2fd;border:1px solid #90caf9;border-radius:6px;padding:8px 16px;cursor:pointer;font-size:13px;color:#1565c0;font-weight:600">あとで発行</button>
         <button class="btn-primary" style="padding:8px 20px;font-size:13px;margin-left:auto" onclick="issueInvoice()">納品書を発行する</button>
       </div>
     </div>
@@ -970,6 +1136,7 @@ function renderIssueTab(){
       <div><div style="font-size:14px;color:#666">合計金額</div><div id="issue-total-amount" style="font-size:20px;font-weight:700;color:#1a1a2e">¥${total.toLocaleString()}</div></div>
     </div>
     <button class="issue-btn" onclick="issueInvoice()">納品書を発行する</button>
+    <button type="button" onclick="saveIssueForLater()" style="display:block;width:100%;margin-top:10px;background:#e3f2fd;border:1px solid #90caf9;border-radius:8px;padding:12px;cursor:pointer;font-size:14px;color:#1565c0;font-weight:600;font-family:inherit">あとで発行（納品日未定で保存）</button>
   </div>`:""}`;
 }
 
@@ -979,6 +1146,7 @@ function resetIssueCustomItems(){
 }
 
 function selectCustomer(name){
+  state.issue.pendingId=null;
   if(name==="__FREE__"){
     state.issue.freeCustomer=true;
     state.issue.customer="";
@@ -1137,12 +1305,14 @@ async function issueInvoice(){
   if(!state.issue.customer&&!state.issue.freeCustomer){showToast("客先を選択してください","error");return;}
   if(state.issue.freeCustomer&&!state.issue.customer.trim()){showToast("客先名を入力してください","error");return;}
   if(isKanagawaRodoCustomer(state.issue.customer)&&!state.issue.deliverySite){showToast("納品先を選択してください","error");return;}
+  if(!state.issue.deliveryDate){showToast("納品日を入力してください","error");return;}
   const items=buildInvoiceItems();
   if(!items.some(i=>!i.isDeliverySite&&i.qty&&parseFloat(i.qty)>0)){showToast("数量を入力してください","error");return;}
   const missingVarPrice=state.issue.items.some(i=>hasVariablePrice(i)&&i.qty&&parseFloat(i.qty)>0&&!(parseFloat(i.price)>0));
   if(missingVarPrice){showToast("都度単価の品目に単価を入力してください","error");return;}
   const sub=getSubtotal();const mg=state.minG[state.issue.customer]||0;const total=Math.max(sub,mg);
   const invNoKey=state.issue.freeCustomer?"__FREE__":state.issue.customer;
+  const pendingId=state.issue.pendingId||null;
   let id=Date.now();
   while(state.history.some(h=>h.id===id))id++;
   const inv={id,invoiceNo:nextInvoiceNo(invNoKey),customer:state.issue.customer,deliveryDate:state.issue.deliveryDate?fromInput(state.issue.deliveryDate):new Date(),issueDate:new Date(),items,subtotal:sub,minGuarantee:mg,total,memo:state.issue.memo||"",deliverySite:state.issue.deliverySite||"",issuedBy:window._userShortId||"",issuedByName:window._userDisplayName||""};
@@ -1176,6 +1346,11 @@ async function issueInvoice(){
         issuedAt:new Date().toISOString()
       });
     }catch(e){console.warn("発行ログ保存エラー",e);}
+    if(pendingId){
+      state.pendingIssues=(state.pendingIssues||[]).filter(x=>x.id!==pendingId);
+      save("pv_pending_issues",state.pendingIssues);
+    }
+    state.issue.pendingId=null;
     state.issue.freeCustomer=false;state.issue.memo="";
     state.issue.items=state.issue.items.map(i=>{
       const row={...i,qty:""};
@@ -1822,6 +1997,9 @@ function saveCustomerDetail(){
     if(state.skipHolidays[d.originalName]!==undefined){state.skipHolidays[d.name]=state.skipHolidays[d.originalName];delete state.skipHolidays[d.originalName];}
     state.prices=state.prices.map(p=>p.customer===d.originalName?{...p,customer:d.name}:p);
     state.history=state.history.map(h=>h.customer===d.originalName?{...h,customer:d.name}:h);
+    if(state.pendingIssues&&state.pendingIssues.length){
+      state.pendingIssues=state.pendingIssues.map(p=>p.customer===d.originalName?{...p,customer:d.name}:p);
+    }
     migrateUnissuedNoneKeys(d.originalName,d.name);
   }
   state.minG[d.name]=d.mg;
@@ -1841,6 +2019,7 @@ function saveCustomerDetail(){
   save("pv_customers",state.customers);save("pv_min",state.minG);save("pv_closing_days",state.closingDays);save("pv_skip_holidays",state.skipHolidays);save("pv_prices",state.prices);saveCycles();
   if(renamed){
     save("pv_unissued_none",state.unissuedNone||{});
+    save("pv_pending_issues",state.pendingIssues||[]);
     window._issuingInvoice=true;
     saveHistoryMerged(state.history).catch(e=>console.error("客先リネーム履歴保存",e)).finally(()=>{
       setTimeout(()=>{window._issuingInvoice=false;},2000);
@@ -1854,6 +2033,7 @@ function saveCustomerDetail(){
     window._fsSave("pv_prices",state.prices).catch(e=>console.error(e));
     if(renamed){
       window._fsSave("pv_unissued_none",state.unissuedNone||{}).catch(e=>console.error(e));
+      window._fsSave("pv_pending_issues",state.pendingIssues||[]).catch(e=>console.error(e));
     }
   }
   if(window._saveDataEditLog)window._saveDataEditLog("客先",`${d.name} を保存（サイクル:${d.cycle} 最低保証:${d.mg} 締め日:${d.closingDay} 祝日:${d.skipHoliday?"飛ばす":"納品あり"}）`);
@@ -1868,6 +2048,9 @@ function saveCustomer(id){
   if(ec.originalName!==ec.name){
     state.minG[ec.name]=state.minG[ec.originalName]||0;delete state.minG[ec.originalName];
     state.history=state.history.map(h=>h.customer===ec.originalName?{...h,customer:ec.name}:h);
+    if(state.pendingIssues&&state.pendingIssues.length){
+      state.pendingIssues=state.pendingIssues.map(p=>p.customer===ec.originalName?{...p,customer:ec.name}:p);
+    }
     migrateUnissuedNoneKeys(ec.originalName,ec.name);
     if(DELIVERY_CYCLES[ec.originalName]!==undefined){DELIVERY_CYCLES[ec.name]=DELIVERY_CYCLES[ec.originalName];delete DELIVERY_CYCLES[ec.originalName];}
     if(state.closingDays[ec.originalName]!==undefined){state.closingDays[ec.name]=state.closingDays[ec.originalName];delete state.closingDays[ec.originalName];}
@@ -1878,7 +2061,7 @@ function saveCustomer(id){
   state.editingCustomer=null;
   save("pv_customers",state.customers);save("pv_min",state.minG);
   if(ec.originalName!==ec.name){
-    save("pv_unissued_none",state.unissuedNone||{});save("pv_prices",state.prices);save("pv_closing_days",state.closingDays);save("pv_skip_holidays",state.skipHolidays||{});saveCycles();
+    save("pv_unissued_none",state.unissuedNone||{});save("pv_pending_issues",state.pendingIssues||[]);save("pv_prices",state.prices);save("pv_closing_days",state.closingDays);save("pv_skip_holidays",state.skipHolidays||{});saveCycles();
     window._issuingInvoice=true;
     saveHistoryMerged(state.history).catch(e=>console.error(e)).finally(()=>setTimeout(()=>{window._issuingInvoice=false;},2000));
   }
@@ -2772,14 +2955,14 @@ function exportMeisaiJson() {
   showToast("書き出し完了：" + summary);
 }
 
-function exportData(){const data={customers:state.customers,products:state.products,prices:state.prices,history:state.history,minG:state.minG,closingDays:state.closingDays,skipHolidays:state.skipHolidays||{},invoiceCounters:state.invoiceCounters,cycles:DELIVERY_CYCLES,exportDate:new Date().toISOString()};const blob=new Blob([JSON.stringify(data,null,2)],{type:"application/json"});const url=URL.createObjectURL(blob);const a=document.createElement("a");a.href=url;a.download=`pourvous_backup_${new Date().toLocaleDateString("ja")}.json`;a.click();showToast("バックアップをdownloadしました");}
-function importData(el){const file=el.files[0];if(!file)return;const r=new FileReader();r.onload=e=>{try{const d=JSON.parse(e.target.result);if(d.customers)state.customers=d.customers;if(d.products)state.products=d.products;if(d.prices)state.prices=d.prices;if(d.history)state.history=d.history;if(d.minG)state.minG=d.minG;if(d.closingDays)state.closingDays=d.closingDays;if(d.skipHolidays)state.skipHolidays=d.skipHolidays;if(d.invoiceCounters)state.invoiceCounters=d.invoiceCounters;if(d.cycles)Object.assign(DELIVERY_CYCLES,d.cycles);save("pv_customers",state.customers);save("pv_products",state.products);save("pv_prices",state.prices);save("pv_history",state.history);save("pv_min",state.minG);save("pv_invoice_counters",state.invoiceCounters);save("pv_closing_days",state.closingDays);save("pv_skip_holidays",state.skipHolidays||{});saveCycles();if(window._fsSave){const _ks=["pv_customers","pv_products","pv_prices","pv_history","pv_min","pv_invoice_counters","pv_closing_days","pv_skip_holidays"];const _vs=[state.customers,state.products,state.prices,state.history,state.minG,state.invoiceCounters,state.closingDays,state.skipHolidays||{}];_ks.forEach((k,i)=>window._fsSave(k,_vs[i]));window._fsSave("pv_cycles",DELIVERY_CYCLES);}showToast("インポートしました");render();}catch{showToast("読み込みに失敗しました","error");}};r.readAsText(file);}
+function exportData(){const data={customers:state.customers,products:state.products,prices:state.prices,history:state.history,minG:state.minG,closingDays:state.closingDays,skipHolidays:state.skipHolidays||{},invoiceCounters:state.invoiceCounters,cycles:DELIVERY_CYCLES,pendingIssues:state.pendingIssues||[],exportDate:new Date().toISOString()};const blob=new Blob([JSON.stringify(data,null,2)],{type:"application/json"});const url=URL.createObjectURL(blob);const a=document.createElement("a");a.href=url;a.download=`pourvous_backup_${new Date().toLocaleDateString("ja")}.json`;a.click();showToast("バックアップをdownloadしました");}
+function importData(el){const file=el.files[0];if(!file)return;const r=new FileReader();r.onload=e=>{try{const d=JSON.parse(e.target.result);if(d.customers)state.customers=d.customers;if(d.products)state.products=d.products;if(d.prices)state.prices=d.prices;if(d.history)state.history=d.history;if(d.minG)state.minG=d.minG;if(d.closingDays)state.closingDays=d.closingDays;if(d.skipHolidays)state.skipHolidays=d.skipHolidays;if(d.invoiceCounters)state.invoiceCounters=d.invoiceCounters;if(d.cycles)Object.assign(DELIVERY_CYCLES,d.cycles);if(d.pendingIssues)state.pendingIssues=d.pendingIssues;save("pv_customers",state.customers);save("pv_products",state.products);save("pv_prices",state.prices);save("pv_history",state.history);save("pv_min",state.minG);save("pv_invoice_counters",state.invoiceCounters);save("pv_closing_days",state.closingDays);save("pv_skip_holidays",state.skipHolidays||{});save("pv_pending_issues",state.pendingIssues||[]);saveCycles();if(window._fsSave){const _ks=["pv_customers","pv_products","pv_prices","pv_history","pv_min","pv_invoice_counters","pv_closing_days","pv_skip_holidays","pv_pending_issues"];const _vs=[state.customers,state.products,state.prices,state.history,state.minG,state.invoiceCounters,state.closingDays,state.skipHolidays||{},state.pendingIssues||[]];_ks.forEach((k,i)=>window._fsSave(k,_vs[i]));window._fsSave("pv_cycles",DELIVERY_CYCLES);}showToast("インポートしました");render();}catch{showToast("読み込みに失敗しました","error");}};r.readAsText(file);}
 function resetAll(){
   const pass=prompt("初期化するには管理者パスワードを入力してください");
   if(pass===null)return;
   if(pass!==_userTabAdminPass){alert("パスワードが違います");return;}
   if(!confirm("全データを初期化しますか？この操作は取り消せません。"))return;
-  state.customers=[...INIT_CUSTOMERS];state.products=[...INIT_PRODUCTS];state.prices=[...INIT_PRICES];state.history=[];state.minG={...INIT_MIN};state.skipHolidays={};Object.keys(DELIVERY_CYCLES).forEach(k=>delete DELIVERY_CYCLES[k]);save("pv_customers",state.customers);save("pv_products",state.products);save("pv_prices",state.prices);save("pv_history",state.history);save("pv_min",state.minG);save("pv_invoice_counters",state.invoiceCounters);save("pv_closing_days",state.closingDays);save("pv_skip_holidays",state.skipHolidays);saveCycles();if(window._fsSave){const _ks=["pv_customers","pv_products","pv_prices","pv_history","pv_min","pv_invoice_counters","pv_closing_days","pv_skip_holidays"];const _vs=[state.customers,state.products,state.prices,state.history,state.minG,state.invoiceCounters,state.closingDays,state.skipHolidays];_ks.forEach((k,i)=>window._fsSave(k,_vs[i]));window._fsSave("pv_cycles",DELIVERY_CYCLES);}showToast("初期化しました");render();
+  state.customers=[...INIT_CUSTOMERS];state.products=[...INIT_PRODUCTS];state.prices=[...INIT_PRICES];state.history=[];state.pendingIssues=[];state.minG={...INIT_MIN};state.skipHolidays={};Object.keys(DELIVERY_CYCLES).forEach(k=>delete DELIVERY_CYCLES[k]);save("pv_customers",state.customers);save("pv_products",state.products);save("pv_prices",state.prices);save("pv_history",state.history);save("pv_pending_issues",state.pendingIssues);save("pv_min",state.minG);save("pv_invoice_counters",state.invoiceCounters);save("pv_closing_days",state.closingDays);save("pv_skip_holidays",state.skipHolidays);saveCycles();if(window._fsSave){const _ks=["pv_customers","pv_products","pv_prices","pv_history","pv_min","pv_invoice_counters","pv_closing_days","pv_skip_holidays","pv_pending_issues"];const _vs=[state.customers,state.products,state.prices,state.history,state.minG,state.invoiceCounters,state.closingDays,state.skipHolidays,state.pendingIssues];_ks.forEach((k,i)=>window._fsSave(k,_vs[i]));window._fsSave("pv_cycles",DELIVERY_CYCLES);}showToast("初期化しました");render();
 }
 
 // --- Guide Tab ---
@@ -2822,7 +3005,7 @@ function renderGuideTab(){
 
   ${guideAcc("daily","📋 毎日の運用フロー",`
     ${step(1,"<strong>ログイン</strong>　ブラウザで <strong>https://pv-dn.github.io/pourvoussystem/</strong> を開き、パスワードでログインします。")}
-    ${step(2,"<strong>未発行を確認</strong>　左側の赤いカードに、昨日・本日・明日の未発行客先が出ます。タップするとその客先の発行画面に入れます。")}
+    ${step(2,"<strong>未発行を確認</strong>　左側の赤いカードに、昨日・本日・明日の未発行客先が出ます（あるときだけ）。青い「あとで発行」カードは常に表示されます。")}
     ${step(3,"<strong>客先を選択</strong>　「伝票発行」タブで客先を選びます。納品日がサイクルから自動で入ります。")}
     ${step(4,"<strong>数量を入力</strong>　品目の数量を入力します。Enterで次の行へ進めます。合計は自動計算されます。")}
     ${step(5,"<strong>納品書を発行・印刷</strong>　「納品書を発行する」→「印刷（B5横）」で印刷します。中央の破線で半分に切り、お客様控えと社内控えに分けます。")}
@@ -2843,11 +3026,19 @@ function renderGuideTab(){
   `)}
 
   ${guideAcc("unissued","⚠️ 未発行のお知らせ（左サイドバー）",`
-    ${step(1,"ログイン後、画面左に赤い「未発行 ○件」カードが出ます（未発行があるときだけ）。")}
-    ${step(2,"昨日・本日・明日の納品サイクルで、まだ発行していない客先が一覧表示されます。")}
+    ${step(1,"ログイン後、画面左にサイドバーが出ます。赤い「未発行」は昨日・本日・明日のサイクル未発行（あるときだけ）。青い「あとで発行」は常に表示されます。")}
+    ${step(2,"未発行：昨日・本日・明日の納品サイクルで、まだ発行していない客先が一覧表示されます。")}
     ${step(3,"客先名を押すと、その客先・納品日が選ばれた状態で伝票発行画面に切り替わります。")}
     ${step(4,"納品がなかったときは「発行なし」を押します。未発行一覧から外れ、発行履歴に残ります。")}
-    <div class="guide-note">すべて発行済み（または発行なし）になると、左のカードは自動で消えます。発行なしは請求明細・売上には載りません。履歴の「取消」で未発行に戻せます。</div>
+    <div class="guide-note">未発行がなくなると赤いカードは消えます。発行なしは請求明細・売上には載りません。履歴の「取消」で未発行に戻せます。</div>
+  `)}
+
+  ${guideAcc("pending","📋 あとで発行",`
+    ${step(1,"納品日がまだ決まっていなくても、客先・品目・数量を先に保存できます。伝票発行画面の「あとで発行」ボタンを押します。")}
+    ${step(2,"左の青いカードに一覧表示されます（0件でもカードは常に表示）。客先名を押すと内容が復元されます。")}
+    ${step(3,"納品日を入力して「納品書を発行する」を押すと本発行され、あとで発行から自動で消えます。")}
+    ${step(4,"不要な下書きはカード内の「削除」で消せます。")}
+    <div class="guide-note">あとで発行は発行履歴・請求・売上には載りません。赤い未発行（サイクル）や「発行なし」とは別物です。</div>
   `)}
 
   ${guideAcc("issue","📝 伝票発行・品目の追加",`
@@ -3265,8 +3456,12 @@ async function cancelIssueNone(id){
 }
 window.markUnissuedNone=markUnissuedNone;
 window.cancelIssueNone=cancelIssueNone;
+window.saveIssueForLater=saveIssueForLater;
+window.openPendingIssue=openPendingIssue;
+window.deletePendingIssue=deletePendingIssue;
 
 function selectCustomerFromSidebar(customerName,dateStr){
+  state.issue.pendingId=null;
   state.issue.freeCustomer=false;
   state.issue.customer=customerName;
   resetIssueCustomItems();
@@ -4158,7 +4353,7 @@ function drawStatsCharts(){
 
 window._appStart = async function() {
   window._state=state;
-  const keys=[["pv_customers","customers"],["pv_products","products"],["pv_prices","prices"],["pv_history","history"],["pv_invoice_counters","invoiceCounters"],["pv_closing_days","closingDays"],["pv_skip_holidays","skipHolidays"],["pv_unissued_none","unissuedNone"],["pv_data_edit_logs","dataEditLogs"],["pv_min","minG"]];
+  const keys=[["pv_customers","customers"],["pv_products","products"],["pv_prices","prices"],["pv_history","history"],["pv_invoice_counters","invoiceCounters"],["pv_closing_days","closingDays"],["pv_skip_holidays","skipHolidays"],["pv_unissued_none","unissuedNone"],["pv_pending_issues","pendingIssues"],["pv_data_edit_logs","dataEditLogs"],["pv_min","minG"]];
   keys.forEach(([k,prop])=>{const v=localStorage.getItem(k);if(v)try{state[prop]=JSON.parse(v);}catch{}});
   try{
     const savedCycles=localStorage.getItem("pv_cycles");
@@ -4169,7 +4364,8 @@ window._appStart = async function() {
   }catch{}
   try{applyShakoCustomerNameFix();}catch(e){console.warn("applyShakoCustomerNameFix",e);}
   try{await loadAdminPass();}catch(e){console.warn("loadAdminPass",e);}
-  if(!state.issue)state.issue={customer:"",freeCustomer:false,deliveryDate:"",deliverySite:"",items:[],customItems:[{name:"",qty:"",price:""}],useCustom:false,customPanelOpen:false,memo:""};
+  if(!state.issue)state.issue={customer:"",freeCustomer:false,deliveryDate:"",deliverySite:"",items:[],customItems:[{name:"",qty:"",price:""}],useCustom:false,customPanelOpen:false,memo:"",pendingId:null};
+  if(state.issue.pendingId===undefined)state.issue.pendingId=null;
   if(state.issue.deliverySite===undefined)state.issue.deliverySite="";
   render();
 };
