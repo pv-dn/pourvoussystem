@@ -295,12 +295,15 @@ td{padding:9px 8px;border-bottom:.5px solid #f0ede8;font-size:13px;overflow:hidd
 .meisai-col-price{width:70px}
 .meisai-col-qty{width:56px}
 .meisai-col-amt{width:80px}
-.meisai-cust-list{width:240px;flex-shrink:0;border:1px solid #e8e4de;border-radius:10px;background:#faf9f6;overflow:hidden;display:flex;flex-direction:column;max-height:calc(90vh - 100px)}
+.meisai-cust-list{width:260px;flex-shrink:0;border:1px solid #e8e4de;border-radius:10px;background:#faf9f6;overflow:hidden;display:flex;flex-direction:column;max-height:calc(90vh - 100px)}
 .meisai-cust-list-head{padding:10px 12px;font-size:13px;font-weight:700;color:#1a1a2e;border-bottom:1px solid #e8e4de;background:#fff}
+.meisai-cust-list-tools{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 10px;border-bottom:1px solid #eee;background:#fff;font-size:12px}
 .meisai-cust-list-body{overflow-y:auto;padding:6px}
-.meisai-cust-item{display:block;width:100%;text-align:left;border:1px solid transparent;background:#fff;border-radius:8px;padding:8px 10px;margin-bottom:4px;cursor:pointer;font-family:inherit}
+.meisai-cust-item{display:flex;align-items:flex-start;gap:8px;width:100%;text-align:left;border:1px solid transparent;background:#fff;border-radius:8px;padding:8px 10px;margin-bottom:4px;font-family:inherit;box-sizing:border-box}
 .meisai-cust-item:hover{border-color:#c8b89a;background:#fffdf8}
 .meisai-cust-item.active{border-color:#854f0b;background:#fff8ef;box-shadow:0 0 0 1px #854f0b33}
+.meisai-cust-check{margin-top:2px;flex-shrink:0}
+.meisai-cust-item-main{display:block;flex:1;min-width:0;text-align:left;background:transparent;border:none;padding:0;cursor:pointer;font-family:inherit}
 .meisai-cust-item-name{font-size:12px;font-weight:600;color:#1a1a2e;line-height:1.35;word-break:break-all}
 .meisai-cust-item-meta{font-size:11px;color:#888;margin-top:3px}
 .meisai-sheet th,.meisai-sheet td{border:1px solid #222;padding:3px 4px;font-size:11px;white-space:nowrap}
@@ -437,6 +440,7 @@ const TABS=["伝票発行","発行履歴","📊 売上統計","📂 データ","
 const DAY_NAMES=["日","月","火","水","木","金","土"];
 /** 更新情報: 機能更新と機能的なバグ修正のみ（文言調整・Tipsは載せない）。新しいものを先頭へ。 */
 const APP_UPDATES=[
+  {date:"2026-09",kind:"機能",title:"請求明細書の月指定閲覧・印刷",items:["請求タブで年月を選んで明細書を画面確認できる","客先にチェックを入れて選択印刷、または全件印刷できる（A4横）"]},
   {date:"2026-09",kind:"機能",title:"あとで発行",items:["納品日が未定でも客先・品目・数量を保存できる","左サイドバーに常時表示。タップで復元し、納品日を入れて本発行できる","発行なし・未発行（サイクル）とは別の下書き"]},
   {date:"2026-09",kind:"機能",title:"納品サイクル「設定なし」",items:["客先管理で納品サイクルに「設定なし」を選べる","一覧ではグレー表示で区別できる"]},
   {date:"2026-08",kind:"機能",title:"売上統計の品目別表示",items:["売上統計に「品目別」を追加","客先・月を選んで品目ごとの数量・金額を確認できる"]},
@@ -527,6 +531,8 @@ let state={
   historyGroupMode:"customer", // "customer" or "date"
   productSort:"code",  // "code" or "name"
   priceSort:"code",    // "code" or "name"
+  billingMonth:(()=>{const d=new Date();return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0");})(),
+  billingCustomer:"",
 };
 
 // DELIVERY_CYCLESをlocalStorageから復元（保存済みがあれば置き換え）
@@ -1379,46 +1385,48 @@ function renderBillingTab(){
   const skipCutoffLabel=getBillingSkipCutoffLabel();
   const todayStr=fmtDate(new Date());
   const todayCount=state.history.filter(h=>isRealInvoice(h)&&fmtDate(new Date(h.deliveryDate))===todayStr).length;
-  const closingCustOpts=state.customers.map(c=>{const cd=state.closingDays[c.name];const cdLabel=cd===0?"月末〆":cd?cd+"日〆":"締め日未設定";return`<option value="${c.name}">${c.name}（${cdLabel}）</option>`;}).join("");
   const lastBatch=lastBillingExportBatch();
   const undoBtn=lastBatch.length?`<button onclick="undoLastBillingExport()" style="background:#fff;border:1px solid #c17a00;color:#8a5a00;border-radius:8px;padding:10px 18px;cursor:pointer;font-size:13px;font-weight:600">↩ 直前の反映を取り消す（${lastBatch.length}件）</button>`:"";
   const skipBlock=oldPendingCount?`<div style="margin-top:12px;padding:10px 12px;background:#fff8e1;border:1px solid #ffe082;border-radius:8px;font-size:13px;color:#5d4037;line-height:1.6">
     ${skipCutoffLabel}の未反映が <strong>${oldPendingCount}件</strong> あります。
     <button onclick="skipOldPendingBilling()" style="display:block;margin-top:8px;background:#fff;border:1px solid #c17a00;color:#8a5a00;border-radius:8px;padding:6px 12px;cursor:pointer;font-size:12px;font-weight:600">請求対象外にする（履歴は残る）</button>
   </div>`:"";
+  const monthVal=state.billingMonth||(new Date().getFullYear()+"-"+String(new Date().getMonth()+1).padStart(2,"0"));
+  const custSel=state.billingCustomer||"";
+  const closingCustOptsSel=state.customers.map(c=>{const cd=state.closingDays[c.name];const cdLabel=cd===0?"月末〆":cd?cd+"日〆":"締め日未設定";return`<option value="${c.name}"${c.name===custSel?" selected":""}>${c.name}（${cdLabel}）</option>`;}).join("");
   return`<h2 style="font-size:20px;font-weight:600;margin-bottom:16px;color:#1a1a2e">請求</h2>
 
   <div class="card">
-    <div style="font-size:13px;color:#888;margin-bottom:4px">請求明細書</div>
+    <div style="font-size:13px;color:#888;margin-bottom:4px">請求明細書を見る・印刷する</div>
+    <div style="display:flex;align-items:flex-end;gap:8px;flex-wrap:wrap;margin-top:10px">
+      <div><label class="lbl">年月</label><input type="month" id="export-month" value="${monthVal}" onchange="state.billingMonth=this.value" style="padding:8px 10px;border:1px solid #ddd;border-radius:6px;font-size:13px"></div>
+      <div><label class="lbl">客先</label><select id="export-cust" onchange="state.billingCustomer=this.value" style="padding:8px 10px;border:1px solid #ddd;border-radius:6px;font-size:13px;min-width:200px"><option value="">全客先</option>${closingCustOptsSel}</select></div>
+      <button onclick="openMeisaiView('closing')" style="background:#1a1a2e;color:#e8d5b7;border:none;border-radius:8px;padding:10px 20px;cursor:pointer;font-size:14px;font-weight:600">👁 確認する</button>
+    </div>
+    <div style="font-size:12px;color:#888;margin-top:10px;line-height:1.6">年月を選んで確認し、画面から印刷できます。締め日未設定の客先は対象外です。</div>
+    ${todayCount?`<div style="margin-top:12px;padding-top:12px;border-top:1px solid #f0ede8;font-size:13px;color:#555;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+      今日（${todayStr}）${todayCount}件
+      <button onclick="openMeisaiView('today')" style="background:#fff;border:1px solid #1565c0;color:#1565c0;padding:5px 12px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600">今日分を見る</button>
+    </div>`:""}
+  </div>
+
+  <div class="card">
+    <div style="font-size:13px;color:#888;margin-bottom:4px">未反映（Excel反映）</div>
     <div style="font-size:28px;font-weight:700;color:#1a1a2e;margin-bottom:14px">${pendingCount?`<span style="color:#854f0b">未反映 ${pendingCount}件</span>`:"未反映なし"}</div>
     <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
-      <button onclick="openMeisaiView('pending')" style="background:#fff;border:1px solid #854f0b;color:#854f0b;border-radius:8px;padding:10px 20px;cursor:pointer;font-size:14px;font-weight:600">👁 確認する</button>
+      <button onclick="openMeisaiView('pending')" style="background:#fff;border:1px solid #854f0b;color:#854f0b;border-radius:8px;padding:10px 20px;cursor:pointer;font-size:14px;font-weight:600">👁 未反映を確認</button>
       <button onclick="exportUnexportedExcel()" style="background:#854f0b;color:#fff;border:none;border-radius:8px;padding:10px 20px;cursor:pointer;font-size:14px;font-weight:600">📄 Excelに書き出す</button>
+      <button onclick="exportClosingExcel()" style="background:#fff;border:1px solid #0277bd;color:#0277bd;border-radius:8px;padding:10px 18px;cursor:pointer;font-size:13px;font-weight:600">📥 上で選んだ月をExcel</button>
       ${undoBtn}
     </div>
     ${skipBlock}
   </div>
 
-  <div class="card">
-    <div style="font-size:14px;font-weight:600;color:#1a1a2e;margin-bottom:10px">期間を指定して再出力</div>
-    <div style="display:flex;align-items:flex-end;gap:8px;flex-wrap:wrap">
-      <div><label class="lbl">客先</label><select id="export-cust" style="padding:8px 10px;border:1px solid #ddd;border-radius:6px;font-size:13px;min-width:200px"><option value="">全客先</option>${closingCustOpts}</select></div>
-      <div><label class="lbl">年月</label><input type="month" id="export-month" style="padding:8px 10px;border:1px solid #ddd;border-radius:6px;font-size:13px" value="${new Date().getFullYear()+"-"+String(new Date().getMonth()+1).padStart(2,"0")}"></div>
-      <button onclick="openMeisaiView('closing')" style="background:#fff;border:1px solid #0277bd;color:#0277bd;padding:9px 16px;border-radius:6px;cursor:pointer;font-size:13px;font-weight:600">👁 見る</button>
-      <button onclick="exportClosingExcel()" style="background:#0277bd;color:#fff;border:none;padding:9px 16px;border-radius:6px;cursor:pointer;font-size:13px;font-weight:600">📥 Excel</button>
-    </div>
-    ${todayCount?`<div style="margin-top:12px;padding-top:12px;border-top:1px solid #f0ede8;font-size:13px;color:#555;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-      今日（${todayStr}）${todayCount}件
-      <button onclick="openMeisaiView('today')" style="background:#fff;border:1px solid #1565c0;color:#1565c0;padding:5px 12px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600">見る</button>
-      <button onclick="exportTodayExcel()" style="background:#1565c0;color:#fff;border:none;padding:5px 12px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600">Excel</button>
-    </div>`:""}
-    <div style="font-size:11px;color:#aaa;margin-top:8px">締め日未設定の客先は対象外です</div>
-  </div>
-
   <details class="card" style="padding:14px 18px">
     <summary style="font-size:14px;font-weight:600;color:#1a1a2e;cursor:pointer">使い方・締め日・単価ルール</summary>
     <div style="margin-top:14px;font-size:13px;color:#555;line-height:1.8">
-      <p style="margin:0 0 10px"><strong>基本の流れ</strong> … 「確認する」で内容を見て、問題なければ「Excelに書き出す」。書き出した伝票が反映済みになります。</p>
+      <p style="margin:0 0 10px"><strong>見る・印刷</strong> … 年月を選んで「確認する」。チェックして「選択して印刷」、または「全件印刷」します。</p>
+      <p style="margin:0 0 10px"><strong>Excel反映</strong> … 「未反映を確認」で内容を見て、問題なければ「Excelに書き出す」。書き出した伝票が反映済みになります。</p>
       <p style="margin:0 0 10px"><strong>締め日</strong> … 客先詳細で設定。20日締めなら毎月21日〜翌20日が1ヶ月分です。</p>
       <p style="margin:0 0 10px"><strong>単価ルール</strong> … 品名＋単価が同じ行は数量を足す。単価が違えば別行になります。</p>
       <p style="margin:0"><strong>請求対象外</strong> … 古い未反映で不要な分は除外できます（発行履歴は残ります）。</p>
@@ -2555,12 +2563,11 @@ function gatherTodayMeisaiSheets(){
   return {sheets};
 }
 function gatherClosingMeisaiSheets(){
-  const custEl=document.getElementById("export-cust");
-  const monthEl=document.getElementById("export-month");
-  if(!monthEl||!monthEl.value)return {error:"年月を選択してください",sheets:[]};
-  const [yrStr,moStr]=monthEl.value.split("-");
+  const monthVal=state.billingMonth||(document.getElementById("export-month")||{}).value||"";
+  if(!monthVal)return {error:"年月を選択してください",sheets:[]};
+  const [yrStr,moStr]=monthVal.split("-");
   const baseYear=parseInt(yrStr), baseMonth=parseInt(moStr);
-  const selCust=custEl?custEl.value:"";
+  const selCust=state.billingCustomer||"";
   let targets=state.customers.filter(c=>state.closingDays[c.name]!==undefined&&state.closingDays[c.name]!=="");
   if(selCust)targets=targets.filter(c=>c.name===selCust);
   if(!targets.length)return {error:"締め日が設定された客先がありません",sheets:[]};
@@ -2642,9 +2649,13 @@ function renderMeisaiSheetHtml(data){
   </div>`;
 }
 function openMeisaiView(mode){
+  const monthEl=document.getElementById("export-month");
+  const custEl=document.getElementById("export-cust");
+  if(monthEl&&monthEl.value)state.billingMonth=monthEl.value;
+  if(custEl)state.billingCustomer=custEl.value;
   const result=mode==="today"?gatherTodayMeisaiSheets():mode==="closing"?gatherClosingMeisaiSheets():gatherPendingMeisaiSheets();
   if(result.error){showToast(result.error,"error");return;}
-  state.meisaiView={sheets:result.sheets,idx:0,mode};
+  state.meisaiView={sheets:result.sheets,idx:0,mode,selected:[]};
   renderMeisaiModal();
 }
 function shiftMeisaiView(d){
@@ -2672,17 +2683,12 @@ async function downloadOpenMeisai(){
   const ok=await exportMeisaiWorkbook(mv.sheets,fname);
   if(ok)showToast(fname+" をダウンロードしました");
 }
-function printOpenMeisai(){
-  const el=document.getElementById("meisai-sheet");
-  if(!el)return;
-  const w=window.open("","meisaiPrint");
-  if(!w){showToast("印刷ウィンドウを許可してください","error");return;}
-  w.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>請求明細書</title>
-    <style>
-      @page{size:A4 landscape;margin:8mm 10mm 12mm 10mm}
+function meisaiPrintCss(){
+  return `@page{size:A4 landscape;margin:8mm 10mm 12mm 10mm}
       html,body{margin:0}
       body{font-family:'Noto Sans JP',sans-serif;color:#111}
-      .meisai-sheet{min-width:0!important;box-sizing:border-box}
+      .meisai-sheet{min-width:0!important;box-sizing:border-box;page-break-after:always}
+      .meisai-sheet:last-child{page-break-after:auto}
       .meisai-screen-only{display:none!important}
       .meisai-title{text-align:center;font-size:22px;font-weight:700;letter-spacing:.5em;padding:10px 0 12px;border:1px solid #222}
       .meisai-head{display:flex;justify-content:space-between;gap:16px;margin-top:12px;align-items:flex-start}
@@ -2707,19 +2713,75 @@ function printOpenMeisai(){
       .meisai-col-name{width:18%}
       .meisai-col-price{width:8%}
       .meisai-col-qty{width:6%}
-      .meisai-col-amt{width:9%}
-    </style></head><body>${el.outerHTML}</body></html>`);
+      .meisai-col-amt{width:9%}`;
+}
+function openMeisaiPrintWindow(bodyHtml){
+  const w=window.open("","meisaiPrint");
+  if(!w){showToast("印刷ウィンドウを許可してください","error");return;}
+  w.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>請求明細書</title>
+    <style>${meisaiPrintCss()}</style></head><body>${bodyHtml}</body></html>`);
   w.document.close();
   setTimeout(()=>{w.focus();w.print();},200);
 }
-function renderMeisaiModal(){
+function printOpenMeisai(){
+  const el=document.getElementById("meisai-sheet");
+  if(!el)return;
+  openMeisaiPrintWindow(el.outerHTML);
+}
+function printSelectedMeisai(){
+  const mv=state.meisaiView;if(!mv||!mv.sheets.length)return;
+  const sel=(mv.selected||[]).filter(i=>i>=0&&i<mv.sheets.length).sort((a,b)=>a-b);
+  if(!sel.length){showToast("印刷する明細書にチェックを入れてください","error");return;}
+  const html=sel.map(i=>renderMeisaiSheetHtml(mv.sheets[i])).join("");
+  openMeisaiPrintWindow(html);
+}
+function printAllOpenMeisai(){
+  const mv=state.meisaiView;if(!mv||!mv.sheets.length)return;
+  const html=mv.sheets.map(s=>renderMeisaiSheetHtml(s)).join("");
+  openMeisaiPrintWindow(html);
+}
+function toggleMeisaiSelect(i,on){
+  const mv=state.meisaiView;if(!mv)return;
+  if(!Array.isArray(mv.selected))mv.selected=[];
+  const n=parseInt(i,10);
+  if(isNaN(n))return;
+  mv.selected=mv.selected.filter(x=>x!==n);
+  if(on)mv.selected.push(n);
+  renderMeisaiModal({scrollActive:false});
+}
+function toggleMeisaiSelectAll(on){
+  const mv=state.meisaiView;if(!mv)return;
+  mv.selected=on?mv.sheets.map((_,i)=>i):[];
+  renderMeisaiModal({scrollActive:false});
+}
+function reloadMeisaiViewMonth(val){
+  state.billingMonth=val;
+  const result=gatherClosingMeisaiSheets();
+  if(result.error){showToast(result.error,"error");return;}
+  const keepCust=state.meisaiView&&state.meisaiView.sheets[state.meisaiView.idx]&&state.meisaiView.sheets[state.meisaiView.idx].customer;
+  let idx=0;
+  if(keepCust){
+    const found=result.sheets.findIndex(s=>s.customer===keepCust);
+    if(found>=0)idx=found;
+  }
+  state.meisaiView={sheets:result.sheets,idx,mode:"closing",selected:[]};
+  renderMeisaiModal();
+}
+function renderMeisaiModal(opts){
+  opts=opts||{};
   const modal=document.getElementById("meisai-modal");
   if(!modal)return;
   const mv=state.meisaiView;
   if(!mv||!mv.sheets.length){modal.classList.add("hidden");modal.innerHTML="";return;}
+  const prevList=document.getElementById("meisai-cust-list-body");
+  const keepScroll=prevList?prevList.scrollTop:0;
   const data=mv.sheets[mv.idx];
   const n=mv.sheets.length;
+  const monthVal=state.billingMonth||"";
   const esc=s=>String(s??"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/"/g,"&quot;");
+  const selected=Array.isArray(mv.selected)?mv.selected:[];
+  const selCount=selected.length;
+  const allOn=n>0&&selCount===n;
   const listHtml=mv.sheets.map((s,i)=>{
     const label=esc(s.customer||s.sheetName||"（客先不明）");
     const multi=(s.pageCount||1)>1;
@@ -2729,35 +2791,52 @@ function renderMeisaiModal(){
     if(multi&&s.grandTotal!=null)metaParts.push(`TOTAL ${yenTxt(s.grandTotal)}`);
     else if(s.pageTotal!=null)metaParts.push(yenTxt(s.pageTotal));
     const meta=esc(metaParts.join("　"));
-    return`<button type="button" class="meisai-cust-item${i===mv.idx?" active":""}" onclick="jumpMeisaiView(${i})">
-      <div class="meisai-cust-item-name">${label}${pageNote}</div>
-      <div class="meisai-cust-item-meta">${meta}</div>
-    </button>`;
+    const checked=selected.includes(i)?" checked":"";
+    return`<div class="meisai-cust-item${i===mv.idx?" active":""}">
+      <input type="checkbox" class="meisai-cust-check" ${checked} onclick="event.stopPropagation()" onchange="toggleMeisaiSelect(${i},this.checked)" aria-label="印刷対象">
+      <button type="button" class="meisai-cust-item-main" onclick="jumpMeisaiView(${i})">
+        <div class="meisai-cust-item-name">${label}${pageNote}</div>
+        <div class="meisai-cust-item-meta">${meta}</div>
+      </button>
+    </div>`;
   }).join("");
   modal.classList.remove("hidden");
   modal.innerHTML=`<div class="modal">
     <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px">
       <div style="font-size:16px;font-weight:700;color:#1a1a2e">請求明細書（画面確認）</div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+        <label style="font-size:12px;color:#666;display:flex;align-items:center;gap:6px">年月
+          <input type="month" value="${monthVal}" onchange="reloadMeisaiViewMonth(this.value)" style="padding:5px 8px;border:1px solid #ddd;border-radius:6px;font-size:13px">
+        </label>
         <button onclick="shiftMeisaiView(-1)" ${n<2?"disabled":""} style="padding:6px 12px;border:1px solid #ddd;background:#fff;border-radius:6px;cursor:pointer">◀ 前へ</button>
         <span style="font-size:13px;color:#555">${mv.idx+1} / ${n}</span>
         <button onclick="shiftMeisaiView(1)" ${n<2?"disabled":""} style="padding:6px 12px;border:1px solid #ddd;background:#fff;border-radius:6px;cursor:pointer">次へ ▶</button>
         <button onclick="closeMeisaiView()" style="padding:6px 12px;border:1px solid #ddd;background:#f5f3ef;border-radius:6px;cursor:pointer">閉じる</button>
-        <button onclick="downloadOpenMeisai()" style="padding:6px 12px;border:none;background:#0277bd;color:#fff;border-radius:6px;cursor:pointer;font-weight:600">Excel出力</button>
-        <button onclick="printOpenMeisai()" style="padding:6px 12px;border:none;background:#1a1a2e;color:#e8d5b7;border-radius:6px;cursor:pointer;font-weight:600">印刷（A4横）</button>
+        <button onclick="printOpenMeisai()" style="padding:6px 12px;border:none;background:#1a1a2e;color:#e8d5b7;border-radius:6px;cursor:pointer;font-weight:600">このページを印刷</button>
+        <button onclick="printSelectedMeisai()" ${selCount?"":"disabled"} style="padding:6px 12px;border:none;background:#1565c0;color:#fff;border-radius:6px;cursor:pointer;font-weight:600">選択して印刷${selCount?`（${selCount}）`:""}</button>
+        <button onclick="printAllOpenMeisai()" style="padding:6px 12px;border:none;background:#854f0b;color:#fff;border-radius:6px;cursor:pointer;font-weight:600">全件印刷</button>
       </div>
     </div>
     <div style="display:flex;gap:14px;align-items:stretch;min-height:0">
       <aside class="meisai-cust-list" aria-label="客先一覧">
         <div class="meisai-cust-list-head">客先一覧（${n}）</div>
+        <div class="meisai-cust-list-tools">
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-weight:600;color:#444">
+            <input type="checkbox" ${allOn?" checked":""} onchange="toggleMeisaiSelectAll(this.checked)"> 全選択
+          </label>
+          <span style="color:#888">${selCount}件選択</span>
+        </div>
         <div class="meisai-cust-list-body" id="meisai-cust-list-body">${listHtml}</div>
       </aside>
       <div style="flex:1;min-width:0;overflow:auto;max-height:calc(90vh - 100px)">${renderMeisaiSheetHtml(data)}</div>
     </div>
   </div>`;
   const listBody=document.getElementById("meisai-cust-list-body");
-  const active=listBody&&listBody.querySelector(".meisai-cust-item.active");
-  if(active)active.scrollIntoView({block:"nearest"});
+  if(listBody)listBody.scrollTop=keepScroll;
+  if(opts.scrollActive!==false){
+    const active=listBody&&listBody.querySelector(".meisai-cust-item.active");
+    if(active)active.scrollIntoView({block:"nearest"});
+  }
 }
 
 // 未反映の伝票を請求月シートにまとめて書き出し（プリームスと同じ運用）
@@ -2833,12 +2912,11 @@ async function exportTodayExcel() {
 
 // 締め日期間で書き出し
 async function exportClosingExcel() {
-  const custEl = document.getElementById("export-cust");
-  const monthEl = document.getElementById("export-month");
-  if (!monthEl || !monthEl.value) { showToast("年月を選択してください", "error"); return; }
-  const [yrStr, moStr] = monthEl.value.split("-");
+  const monthVal = state.billingMonth || (document.getElementById("export-month") || {}).value || "";
+  if (!monthVal) { showToast("年月を選択してください", "error"); return; }
+  const [yrStr, moStr] = monthVal.split("-");
   const baseYear = parseInt(yrStr), baseMonth = parseInt(moStr);
-  const selCust = custEl ? custEl.value : "";
+  const selCust = state.billingCustomer || "";
 
   let targets = state.customers.filter(c => state.closingDays[c.name] !== undefined && state.closingDays[c.name] !== "");
   if (selCust) targets = targets.filter(c => c.name === selCust);
@@ -3009,7 +3087,7 @@ function renderGuideTab(){
     ${step(3,"<strong>客先を選択</strong>　「伝票発行」タブで客先を選びます。納品日がサイクルから自動で入ります。")}
     ${step(4,"<strong>数量を入力</strong>　品目の数量を入力します。Enterで次の行へ進めます。合計は自動計算されます。")}
     ${step(5,"<strong>納品書を発行・印刷</strong>　「納品書を発行する」→「印刷（B5横）」で印刷します。中央の破線で半分に切り、お客様控えと社内控えに分けます。")}
-    ${step(6,"<strong>請求明細書を確認・出力</strong>　「請求」タブで「👁 確認する」→「📄 Excelに書き出す」。")}
+    ${step(6,"<strong>請求明細書を確認・印刷</strong>　「請求」タブで年月を選び「👁 確認する」。チェックして「選択して印刷」、または「全件印刷」。")}
     <div class="guide-note">明細書には同じ請求月の反映済みも含めて月全体が載ります（正式な請求明細のため）。「反映済み」になるのは未反映分だけです。誤って反映した場合は「↩ 反映を取り消す」で戻せます。</div>
     <div class="guide-warn">使い終わったら右上の「ログアウト」を必ず押してください。</div>
   `)}
@@ -3089,11 +3167,11 @@ function renderGuideTab(){
   `)}
 
   ${guideAcc("billing","📄 請求タブ（請求明細書）",`
-    ${step(1,"「請求」タブで請求明細書の確認・Excel書き出しができます。")}
-    ${step(2,"「👁 確認する」で明細を画面確認できます。")}
-    ${step(3,"問題なければ「📄 Excelに書き出す」でダウンロードします。")}
-    ${step(4,"締め日ごとの書き出しは、客先・基準年月を選んで「締め日期間で書き出し」を使います。")}
-    <div class="guide-note">締め日・単価の反映ルール・未反映の仕組みは請求タブ内にも記載しています。</div>
+    ${step(1,"「請求」タブで年月を選び、請求明細書を画面確認・印刷できます。")}
+    ${step(2,"年月（必要なら客先）を選んで「👁 確認する」。左の客先一覧で切り替えます。")}
+    ${step(3,"左の一覧でチェックを入れて「選択して印刷」。全部出すときは「全件印刷」（A4横）。確認画面でも年月を変えられます。")}
+    ${step(4,"Excelで反映したいときは「未反映を確認」→「📄 Excelに書き出す」。")}
+    <div class="guide-note">締め日・単価の反映ルール・未反映の仕組みは請求タブ内にも記載しています。締め日未設定の客先は対象外です。</div>
   `)}
 
   ${guideAcc("closing","📅 締め日と明細書シート",`
@@ -3111,7 +3189,7 @@ function renderGuideTab(){
     ${step(1,"発行履歴 → 該当伝票の「再印刷」。伝票番号はそのままです。")}
     <div class="guide-sub">数量や金額を間違えた</div>
     ${step(1,"発行履歴 →「修正」→ 内容を直して保存 →「再印刷」。")}
-    ${step(2,"請求タブの「締め日期間で書き出し」で、該当月の明細書を再出力できます。")}
+    ${step(2,"請求タブで該当月を選んで「確認する」から印刷、または「上で選んだ月をExcel」で再出力できます。")}
     <div class="guide-sub">履歴を削除したい</div>
     ${step(1,"発行履歴の「削除」。確認後に消えます。元に戻せません。")}
     <div class="guide-warn">削除前に明細書への書き出しを済ませてください。</div>
@@ -4367,6 +4445,8 @@ window._appStart = async function() {
   if(!state.issue)state.issue={customer:"",freeCustomer:false,deliveryDate:"",deliverySite:"",items:[],customItems:[{name:"",qty:"",price:""}],useCustom:false,customPanelOpen:false,memo:"",pendingId:null};
   if(state.issue.pendingId===undefined)state.issue.pendingId=null;
   if(state.issue.deliverySite===undefined)state.issue.deliverySite="";
+  if(!state.billingMonth){const d=new Date();state.billingMonth=d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0");}
+  if(state.billingCustomer===undefined)state.billingCustomer="";
   render();
 };
 // Firebaseの初期化が終わっていなければ待つ（通常はmoduleが先に処理される）
