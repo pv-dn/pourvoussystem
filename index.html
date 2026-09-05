@@ -349,8 +349,10 @@ td{padding:9px 8px;border-bottom:.5px solid #f0ede8;font-size:13px;overflow:hidd
 /* 未発行アラート */
 /* 2カラム：未発行サイドバー */
 .app-layout{display:flex;max-width:1380px;margin:0 auto;padding:0 20px;gap:20px;align-items:flex-start}
+.app-layout.has-sidebar.sidebar-dual{max-width:1680px}
 .app-layout:not(.has-sidebar){max-width:1100px}
 .unissued-sidebar{width:300px;flex-shrink:0;display:none;position:sticky;top:16px;max-height:calc(100vh - 24px);overflow-y:auto}
+.app-layout.sidebar-dual .unissued-sidebar{width:620px}
 .unissued-sidebar-card{background:#fff;border-radius:12px;border:2px solid #fca5a5;box-shadow:0 4px 16px rgba(220,38,38,.12);overflow:hidden}
 .unissued-sidebar-head{background:linear-gradient(135deg,#b91c1c,#dc2626);color:#fff;padding:14px 16px}
 .unissued-sidebar-head h3{font-size:15px;font-weight:700;margin:0 0 4px}
@@ -369,6 +371,8 @@ td{padding:9px 8px;border-bottom:.5px solid #f0ede8;font-size:13px;overflow:hidd
 .unissued-sidebar-none{margin-top:8px;width:100%;background:#f8f7f4;color:#666;border:1px solid #e0ddd6;border-radius:6px;padding:5px 8px;font-size:11px;cursor:pointer;font-family:inherit}
 .unissued-sidebar-none:hover{background:#eee;color:#333}
 .unissued-sidebar-stack{display:flex;flex-direction:column;gap:12px}
+.unissued-sidebar-stack.dual{flex-direction:row;align-items:flex-start}
+.unissued-sidebar-stack.dual > *{flex:1;min-width:0;width:300px}
 .pending-sidebar-card{background:#fff;border-radius:12px;border:2px solid #93c5fd;box-shadow:0 4px 16px rgba(37,99,235,.1);overflow:hidden}
 .pending-sidebar-head{background:linear-gradient(135deg,#1d4ed8,#2563eb);color:#fff;padding:14px 16px}
 .pending-sidebar-head h3{font-size:15px;font-weight:700;margin:0 0 4px}
@@ -387,7 +391,9 @@ td{padding:9px 8px;border-bottom:.5px solid #f0ede8;font-size:13px;overflow:hidd
 .app-layout .content{flex:1;min-width:0;max-width:none;margin:0;padding:24px 0 32px}
 @media(max-width:960px){
   .app-layout{flex-direction:column;padding:0 16px}
-  .unissued-sidebar{width:100%;position:relative;top:auto;max-height:none}
+  .unissued-sidebar,.app-layout.sidebar-dual .unissued-sidebar{width:100%;position:relative;top:auto;max-height:none}
+  .unissued-sidebar-stack.dual{flex-direction:column}
+  .unissued-sidebar-stack.dual > *{width:100%}
   .meisai-overlay .modal > div:last-child{flex-direction:column}
   .meisai-cust-list{width:100%;max-height:180px}
 }
@@ -961,13 +967,17 @@ function updateUnissuedAlerts(){
   const sidebar=document.getElementById("unissued-sidebar");
   if(!window._currentUser){
     if(sidebar)sidebar.style.display="none";
-    if(layout)layout.classList.remove("has-sidebar");
+    if(layout){layout.classList.remove("has-sidebar");layout.classList.remove("sidebar-dual");}
     return;
   }
   if(layout)layout.classList.add("has-sidebar");
   if(sidebar)sidebar.style.display="block";
   const alerts=getUnissuedAlerts();
   const count=alerts.length;
+  if(layout){
+    if(count>0)layout.classList.add("sidebar-dual");
+    else layout.classList.remove("sidebar-dual");
+  }
   let unissuedCard="";
   if(count>0){
     const todayCount=alerts.filter(a=>a.label==="本日").length;
@@ -1025,7 +1035,7 @@ function updateUnissuedAlerts(){
     </div>
     <div class="pending-sidebar-list">${pendingItems}</div>
   </div>`;
-  if(sidebar)sidebar.innerHTML=`<div class="unissued-sidebar-stack">${unissuedCard}${pendingCard}</div>`;
+  if(sidebar)sidebar.innerHTML=`<div class="unissued-sidebar-stack${count>0?" dual":""}">${pendingCard}${unissuedCard}</div>`;
 }
 
 function setTab(i){
