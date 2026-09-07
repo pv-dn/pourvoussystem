@@ -446,6 +446,7 @@ const TABS=["伝票発行","発行履歴","📊 売上統計","📂 データ","
 const DAY_NAMES=["日","月","火","水","木","金","土"];
 /** 更新情報: 機能更新と機能的なバグ修正のみ（文言調整・Tipsは載せない）。新しいものを先頭へ。 */
 const APP_UPDATES=[
+  {date:"2026-09",kind:"機能",title:"マイナス伝票（数量マイナス）",items:["数量にマイナスを入力して返品・調整の伝票を発行できる","テンキーの－は△表示。印刷・請求明細も△で表示","小計が0以下のときは最低保証を適用しない"]},
   {date:"2026-09",kind:"機能",title:"請求明細書の月指定閲覧・印刷",items:["請求タブで年月を選んで明細書を画面確認できる","客先にチェックを入れて選択印刷、または全件印刷できる（A4横）"]},
   {date:"2026-09",kind:"機能",title:"あとで発行",items:["納品日が未定でも客先・品目・数量を保存できる","左サイドバーに常時表示。タップで復元し、納品日を入れて本発行できる","発行なし・未発行（サイクル）とは別の下書き"]},
   {date:"2026-09",kind:"機能",title:"納品サイクル「設定なし」",items:["客先管理で納品サイクルに「設定なし」を選べる","一覧ではグレー表示で区別できる"]},
@@ -576,8 +577,65 @@ function saveAll(){save("pv_customers",state.customers);save("pv_products",state
 const DEFAULT_QTY_TIERS=()=>[{min:1,max:null,price:0}];
 function hasQtyTiers(rec){return rec&&Array.isArray(rec.qtyTiers)&&rec.qtyTiers.length>0;}
 function hasVariablePrice(rec){return!!(rec&&rec.variablePrice&&!hasQtyTiers(rec));}
+function hasNonZeroQty(q){
+  if(q===""||q==null)return false;
+  const n=parseQtyNumber(q);
+  return n!==null&&n!==0;
+}
+function parseQtyNumber(q){
+  if(q===""||q==null)return null;
+  let t=String(q).trim().replace(/,/g,"");
+  if(!t)return null;
+  t=t.replace(/^[△▲⊿]/,"-").replace(/[−－ー]/g,"-");
+  if(t==="-"||t==="+"||t===".")return null;
+  const n=parseFloat(t);
+  return isNaN(n)?null:n;
+}
+function normalizeQtyValue(v){
+  if(v===""||v==null)return "";
+  const n=parseQtyNumber(v);
+  return n===null?"":n;
+}
+function formatQtyDisplay(q){
+  if(q===""||q==null)return "";
+  const n=parseQtyNumber(q);
+  if(n===null){
+    // 入力途中（△だけ等）はそのまま
+    return String(q).replace(/^[-−－ー]/,"△");
+  }
+  if(n<0)return "△"+String(Math.abs(n));
+  return String(n);
+}
+function formatSignedNum(n){
+  const v=Math.round(parseFloat(n)||0);
+  if(v<0)return "△"+Math.abs(v).toLocaleString();
+  return v.toLocaleString();
+}
+function formatSignedYen(n){
+  const v=Math.round(parseFloat(n)||0);
+  if(v<0)return "¥△"+Math.abs(v).toLocaleString();
+  return "¥"+v.toLocaleString();
+}
+function liveQtyTriangle(el){
+  if(!el)return;
+  const start=el.selectionStart;
+  const before=el.value;
+  const after=String(before).replace(/^[-−－ー]/,"△");
+  if(after===before)return;
+  el.value=after;
+  try{if(typeof start==="number")el.setSelectionRange(start,start);}catch{}
+}
+function qtyAmount(qty,price){
+  return (parseQtyNumber(qty)||0)*(parseFloat(price)||0);
+}
+function applyMinGuarantee(sub,mg){
+  const m=parseFloat(mg)||0;
+  // マイナス伝票（小計≦0）では最低保証を適用しない
+  if(m>0&&sub>0)return Math.max(sub,m);
+  return sub;
+}
 function resolveUnitPrice(rec,qty){
-  const q=parseFloat(qty)||0;
+  const q=Math.abs(parseQtyNumber(qty)||0);
   if(!hasQtyTiers(rec))return parseFloat(rec?.price)||0;
   if(q<=0)return rec.qtyTiers[0].price;
   for(const t of rec.qtyTiers){
@@ -796,16 +854,16 @@ function nextInvoiceNo(custName){
   const mx=Math.max(fromCounter,...fromHistory,0);
   return`${prefix}-P${String(mx+1).padStart(3,"0")}`;
 }
-function getSubtotal(){const items=activeItems();return items.reduce((s,i)=>{const q=parseFloat(i.qty)||0;const p=hasQtyTiers(i)?resolveUnitPrice(i,i.qty):(parseFloat(i.price)||0);return s+q*p;},0);}
+function getSubtotal(){const items=activeItems();return items.reduce((s,i)=>{const p=hasQtyTiers(i)?resolveUnitPrice(i,i.qty):(parseFloat(i.price)||0);return s+qtyAmount(i.qty,p);},0);}
 function activeItems(){
-  const listItems=state.issue.items.filter(i=>i.qty&&parseFloat(i.qty)>0);
-  const customItems=(state.issue.customItems||[]).filter(i=>i.name&&i.qty&&parseFloat(i.qty)>0);
+  const listItems=state.issue.items.filter(i=>hasNonZeroQty(i.qty));
+  const customItems=(state.issue.customItems||[]).filter(i=>i.name&&hasNonZeroQty(i.qty));
   return [...listItems,...customItems.map(i=>({...i,code:i.code||"★"}))];
 }
 function buildInvoiceItems(){
   const items=activeItems().map(i=>{
     const price=hasQtyTiers(i)?resolveUnitPrice(i,i.qty):(parseFloat(i.price)||0);
-    const row={...i,price};
+    const row={...i,qty:parseQtyNumber(i.qty),price};
     delete row.refPrice;
     return row;
   });
@@ -814,15 +872,15 @@ function buildInvoiceItems(){
   }
   return items;
 }
-function getTotal(){const sub=getSubtotal();const mg=state.minG[state.issue.customer]||0;return Math.max(sub,mg);}
+function getTotal(){return applyMinGuarantee(getSubtotal(),state.minG[state.issue.customer]||0);}
 
 function getPendingIssuesSorted(){
   return [...(state.pendingIssues||[])].sort((a,b)=>new Date(b.updatedAt||b.savedAt||0)-new Date(a.updatedAt||a.savedAt||0));
 }
 function pendingIssueLineCount(p){
   let n=0;
-  (p.items||[]).forEach(i=>{if(i.qty&&parseFloat(i.qty)>0)n++;});
-  (p.customItems||[]).forEach(i=>{if(i.name&&i.qty&&parseFloat(i.qty)>0)n++;});
+  (p.items||[]).forEach(i=>{if(hasNonZeroQty(i.qty))n++;});
+  (p.customItems||[]).forEach(i=>{if(i.name&&hasNonZeroQty(i.qty))n++;});
   return n;
 }
 function snapshotPendingFromIssue(){
@@ -845,8 +903,8 @@ function snapshotPendingFromIssue(){
   };
 }
 function issueHasQty(){
-  const listQty=state.issue.items.some(i=>i.qty&&parseFloat(i.qty)>0);
-  const customQty=(state.issue.customItems||[]).some(i=>i.name&&i.qty&&parseFloat(i.qty)>0);
+  const listQty=state.issue.items.some(i=>hasNonZeroQty(i.qty));
+  const customQty=(state.issue.customItems||[]).some(i=>i.name&&hasNonZeroQty(i.qty));
   return listQty||customQty;
 }
 async function saveIssueForLater(){
@@ -1076,14 +1134,17 @@ function renderIssueTab(){
     }
     iss.items.forEach((item,i)=>{
       const unitPrice=hasQtyTiers(item)?resolveUnitPrice(item,item.qty):(hasVariablePrice(item)?(parseFloat(item.price)||0):(parseFloat(item.price)||0));
-      const amt=item.qty&&unitPrice?(parseInt(item.qty)*unitPrice).toLocaleString():"—";
+      const amtNum=hasNonZeroQty(item.qty)&&unitPrice?qtyAmount(item.qty,unitPrice):null;
+      const amt=amtNum==null?"—":formatSignedNum(amtNum);
       const refHint=item.refPrice?`参考 ¥${item.refPrice.toLocaleString()}`:"単価";
       const priceHtml=hasQtyTiers(item)
-        ?(item.qty?`¥${unitPrice.toLocaleString()}`:`<span style="font-size:11px;color:#888;line-height:1.4" title="${formatTierLabel(item)}">数量により変動</span>`)
+        ?(hasNonZeroQty(item.qty)?`¥${unitPrice.toLocaleString()}`:`<span style="font-size:11px;color:#888;line-height:1.4" title="${formatTierLabel(item)}">数量により変動</span>`)
         :hasVariablePrice(item)
         ?`<input type="number" min="0" value="${item.price||""}" placeholder="${refHint}" data-price-idx="${i}" oninput="setItemPrice(${i},this.value,true)" style="width:90px;padding:6px 8px;border:1px solid #90caf9;border-radius:6px;font-size:13px;text-align:right;background:#f0f7ff">`
         :`¥${(parseFloat(item.price)||0).toLocaleString()}`;
-      itemsHtml+=`<tr style="background:${item.qty?"#fafff8":""}"><td><span class="code-badge">${item.code}</span></td><td>${item.name}${hasQtyTiers(item)?`<div style="font-size:10px;color:#b45309;margin-top:2px">${formatTierLabel(item)}</div>`:""}${hasVariablePrice(item)?`<div style="font-size:10px;color:#1565c0;margin-top:2px">都度単価</div>`:""}</td><td>${priceHtml}</td><td><input type="number" min="0" value="${item.qty||""}" style="width:80px;text-align:center" data-qty-idx="${i}" onchange="setItemQty(${i},this.value)" onkeydown="qtyKeyDown(event,${i})"></td><td style="text-align:right;font-weight:${item.qty?600:400}">${item.qty&&unitPrice?"¥"+amt:"—"}</td><td></td></tr>`;
+      const qtyN=parseQtyNumber(item.qty);
+      const qtyBg=hasNonZeroQty(item.qty)?(qtyN<0?"#fff5f5":"#fafff8"):"";
+      itemsHtml+=`<tr style="background:${qtyBg}"><td><span class="code-badge">${item.code}</span></td><td>${item.name}${hasQtyTiers(item)?`<div style="font-size:10px;color:#b45309;margin-top:2px">${formatTierLabel(item)}</div>`:""}${hasVariablePrice(item)?`<div style="font-size:10px;color:#1565c0;margin-top:2px">都度単価</div>`:""}</td><td>${priceHtml}</td><td><input type="text" inputmode="decimal" value="${formatQtyDisplay(item.qty)}" style="width:80px;text-align:center" data-qty-idx="${i}" oninput="liveQtyTriangle(this)" onchange="setItemQty(${i},this.value)" onkeydown="qtyKeyDown(event,${i})" title="マイナスは△表示（テンキーの－でOK）"></td><td style="text-align:right;font-weight:${hasNonZeroQty(item.qty)?600:400};${qtyN<0?"color:#c62828":""}">${amtNum==null?"—":"¥"+amt}</td><td></td></tr>`;
     });
     itemsHtml+=`</tbody></table>`;
   }
@@ -1092,7 +1153,7 @@ function renderIssueTab(){
   if(showCustomPanel&&iss.customItems&&iss.customItems.length){
     const escAttr=v=>String(v??"").replace(/&/g,"&amp;").replace(/"/g,"&quot;").replace(/</g,"&lt;");
     itemsHtml+=`<div style="margin-bottom:8px;padding:8px;background:#f0f7ff;border-radius:8px;border:1px solid #c8e0ff"><div style="font-size:12px;color:#1565c0;margin-bottom:6px">📝 自由入力行</div>`;
-    itemsHtml+=iss.customItems.map((item,i)=>`<div style="display:grid;grid-template-columns:2fr 1fr 1fr auto;gap:8px;margin-bottom:6px"><input placeholder="品名" value="${escAttr(item.name)}" oninput="setCustomItem(${i},'name',this.value)" style="padding:9px 12px;border:1px solid #c8e0ff;border-radius:8px;font-size:14px"><input type="number" placeholder="数量" value="${escAttr(item.qty)}" oninput="setCustomItem(${i},'qty',this.value,true)" style="padding:9px 12px;border:1px solid #c8e0ff;border-radius:8px;font-size:14px;text-align:center"><input type="number" placeholder="単価" value="${escAttr(item.price)}" oninput="setCustomItem(${i},'price',this.value,true)" style="padding:9px 12px;border:1px solid #c8e0ff;border-radius:8px;font-size:14px;text-align:right"><button type="button" onclick="removeCustomItem(${i})" style="background:#fee;border:1px solid #fcc;border-radius:6px;cursor:pointer;padding:0 10px;color:#c62828">✕</button></div>`).join("");
+    itemsHtml+=iss.customItems.map((item,i)=>`<div style="display:grid;grid-template-columns:2fr 1fr 1fr auto;gap:8px;margin-bottom:6px"><input placeholder="品名" value="${escAttr(item.name)}" oninput="setCustomItem(${i},'name',this.value)" style="padding:9px 12px;border:1px solid #c8e0ff;border-radius:8px;font-size:14px"><input type="text" inputmode="decimal" placeholder="数量（－→△）" value="${escAttr(formatQtyDisplay(item.qty))}" oninput="liveQtyTriangle(this);setCustomItem(${i},'qty',this.value,true)" style="padding:9px 12px;border:1px solid #c8e0ff;border-radius:8px;font-size:14px;text-align:center" title="マイナスは△表示"><input type="number" placeholder="単価" value="${escAttr(item.price)}" oninput="setCustomItem(${i},'price',this.value,true)" style="padding:9px 12px;border:1px solid #c8e0ff;border-radius:8px;font-size:14px;text-align:right"><button type="button" onclick="removeCustomItem(${i})" style="background:#fee;border:1px solid #fcc;border-radius:6px;cursor:pointer;padding:0 10px;color:#c62828">✕</button></div>`).join("");
     itemsHtml+=`</div>`;
   }
   // 商品ピッカー
@@ -1101,7 +1162,7 @@ function renderIssueTab(){
     <div style="font-size:13px;color:#888;margin-bottom:8px">商品を選択して数量・単価を入力してください</div>
     <div style="display:grid;grid-template-columns:2fr 1fr 1fr auto;gap:8px;align-items:end">
       <div><label class="lbl">商品</label><select id="picker-product" style="width:100%;padding:9px 12px;border:1px solid #ddd;border-radius:8px;font-size:14px"><option value="">選択してください</option>${productOpts}</select></div>
-      <div><label class="lbl">数量</label><input type="number" id="picker-qty" placeholder="数量" style="width:100%;padding:9px 12px;border:1px solid #ddd;border-radius:8px;font-size:14px;text-align:center"></div>
+      <div><label class="lbl">数量</label><input type="text" inputmode="decimal" id="picker-qty" placeholder="数量（－→△）" oninput="liveQtyTriangle(this)" style="width:100%;padding:9px 12px;border:1px solid #ddd;border-radius:8px;font-size:14px;text-align:center" title="マイナスは△表示"></div>
       <div><label class="lbl">単価</label><input type="number" id="picker-price" placeholder="単価" style="width:100%;padding:9px 12px;border:1px solid #ddd;border-radius:8px;font-size:14px;text-align:right"></div>
       <button onclick="addFromPicker()" style="background:#1a1a2e;color:#e8d5b7;border:none;border-radius:8px;padding:10px 16px;cursor:pointer;font-size:14px;font-weight:700;margin-top:20px">追加</button>
     </div>
@@ -1148,8 +1209,8 @@ function renderIssueTab(){
       <textarea placeholder="自由に入力できます" oninput="state.issue.memo=this.value" style="width:100%;padding:9px 12px;border:1px solid #ddd;border-radius:8px;font-size:14px;resize:vertical;height:64px;line-height:1.6">${iss.memo||""}</textarea>
     </div>
     <div class="total-row">
-      <div id="issue-mg-note">${mg>0&&sub<mg?`<div style="font-size:13px;color:#c17a00">小計 ¥${sub.toLocaleString()} → 最低保証 ¥${mg.toLocaleString()} 適用</div>`:""}</div>
-      <div><div style="font-size:14px;color:#666">合計金額</div><div id="issue-total-amount" style="font-size:20px;font-weight:700;color:#1a1a2e">¥${total.toLocaleString()}</div></div>
+      <div id="issue-mg-note">${mg>0&&sub>0&&sub<mg?`<div style="font-size:13px;color:#c17a00">小計 ${formatSignedYen(sub)} → 最低保証 ¥${mg.toLocaleString()} 適用</div>`:""}</div>
+      <div><div style="font-size:14px;color:#666">合計金額</div><div id="issue-total-amount" style="font-size:20px;font-weight:700;color:#1a1a2e">${formatSignedYen(total)}</div></div>
     </div>
     <button class="issue-btn" onclick="issueInvoice()">納品書を発行する</button>
     <button type="button" onclick="saveIssueForLater()" style="display:block;width:100%;margin-top:10px;background:#e3f2fd;border:1px solid #90caf9;border-radius:8px;padding:12px;cursor:pointer;font-size:14px;color:#1565c0;font-weight:600;font-family:inherit">あとで発行（納品日未定で保存）</button>
@@ -1212,9 +1273,9 @@ function setFreeCustomer(val){
   state.issue.customer=val;
 }
 function setItemQty(i,v){
-  state.issue.items[i].qty=v;
+  state.issue.items[i].qty=normalizeQtyValue(v);
   const it=state.issue.items[i];
-  if(hasQtyTiers(it))it.price=resolveUnitPrice(it,v);
+  if(hasQtyTiers(it))it.price=resolveUnitPrice(it,it.qty);
   render();
 }
 function setItemPrice(i,v,refreshTotal){
@@ -1227,18 +1288,18 @@ function setItemPrice(i,v,refreshTotal){
     const it=state.issue.items[i];
     const unitPrice=parseFloat(v)||0;
     const amtTd=tr?.querySelector("td:nth-child(5)");
-    if(amtTd)amtTd.textContent=it.qty&&unitPrice?`¥${(parseInt(it.qty)*unitPrice).toLocaleString()}`:"—";
+    if(amtTd)amtTd.textContent=hasNonZeroQty(it.qty)&&unitPrice?formatSignedYen(qtyAmount(it.qty,unitPrice)):"—";
   }
 }
 function qtyKeyDown(e,i){
   if(e.key==="Enter"){
     e.preventDefault();
-    state.issue.items[i].qty=e.target.value;
+    liveQtyTriangle(e.target);
+    state.issue.items[i].qty=normalizeQtyValue(e.target.value);
     const it=state.issue.items[i];
-    if(hasQtyTiers(it))it.price=resolveUnitPrice(it,e.target.value);
+    if(hasQtyTiers(it))it.price=resolveUnitPrice(it,it.qty);
     const nextIdx=i+1;
     render();
-    // render後にフォーカスを次の入力欄へ移動
     const inputs=document.querySelectorAll("[data-qty-idx]");
     const next=Array.from(inputs).find(el=>parseInt(el.dataset.qtyIdx)===nextIdx);
     if(next){next.focus();next.select();}
@@ -1247,18 +1308,22 @@ function qtyKeyDown(e,i){
 }
 function setCustomItem(i,k,v,refreshTotal){
   if(!state.issue.customItems[i])return;
-  // 入力中にrender()するとフォーカスが消えるため、状態と合計表示だけ更新
-  state.issue.customItems[i][k]=v;
+  if(k==="qty"){
+    const n=parseQtyNumber(v);
+    state.issue.customItems[i][k]=n!==null?n:String(v||"").replace(/^[-−－ー]/,"△");
+  }else{
+    state.issue.customItems[i][k]=v;
+  }
   if(refreshTotal)updateIssueTotalsDisplay();
 }
 function updateIssueTotalsDisplay(){
   const sub=getSubtotal();
   const mg=state.minG[state.issue.customer]||0;
-  const total=Math.max(sub,mg);
+  const total=applyMinGuarantee(sub,mg);
   const totalEl=document.getElementById("issue-total-amount");
-  if(totalEl)totalEl.textContent="¥"+total.toLocaleString();
+  if(totalEl)totalEl.textContent=formatSignedYen(total);
   const noteEl=document.getElementById("issue-mg-note");
-  if(noteEl)noteEl.innerHTML=mg>0&&sub<mg?`<div style="font-size:13px;color:#c17a00">小計 ¥${sub.toLocaleString()} → 最低保証 ¥${mg.toLocaleString()} 適用</div>`:"";
+  if(noteEl)noteEl.innerHTML=mg>0&&sub>0&&sub<mg?`<div style="font-size:13px;color:#c17a00">小計 ${formatSignedYen(sub)} → 最低保証 ¥${mg.toLocaleString()} 適用</div>`:"";
 }
 
 function showProductPicker(){
@@ -1271,21 +1336,20 @@ function addFromPicker(){
   const qty=document.getElementById("picker-qty").value;
   const price=document.getElementById("picker-price").value;
   if(!code){alert("商品を選択してください");return;}
-  if(!qty){alert("数量を入力してください");return;}
+  const qtyVal=normalizeQtyValue(qty);
+  if(qtyVal===""){alert("数量を入力してください（マイナスは△表示）");return;}
   const prod=state.products.find(p=>p.code===code);
   if(!prod)return;
-  const unitPrice=price?parseInt(price):(()=>{
-    const pr=state.prices.find(p=>p.customer===state.issue.customer&&p.code===code);
-    return pr?resolveUnitPrice(pr,qty):0;
-  })();
+  const unitPrice=price!==""&&!isNaN(parseFloat(price))?parseFloat(price):(
+    (()=>{const pr=state.prices.find(p=>p.customer===state.issue.customer&&p.code===code);return pr?resolveUnitPrice(pr,qtyVal):0;})()
+  );
   if(!state.issue.customItems)state.issue.customItems=[{name:"",qty:"",price:""}];
   state.issue.customPanelOpen=true;
-  // 空の行があれば使う、なければ追加
   const emptyIdx=state.issue.customItems.findIndex(it=>!it.name&&!it.qty&&!it.price);
   if(emptyIdx>=0){
-    state.issue.customItems[emptyIdx]={name:prod.name,qty:parseInt(qty),price:unitPrice};
+    state.issue.customItems[emptyIdx]={name:prod.name,qty:qtyVal,price:unitPrice};
   } else {
-    state.issue.customItems.push({name:prod.name,qty:parseInt(qty),price:unitPrice});
+    state.issue.customItems.push({name:prod.name,qty:qtyVal,price:unitPrice});
   }
   document.getElementById("picker-product").value="";
   document.getElementById("picker-qty").value="";
@@ -1323,10 +1387,10 @@ async function issueInvoice(){
   if(isKanagawaRodoCustomer(state.issue.customer)&&!state.issue.deliverySite){showToast("納品先を選択してください","error");return;}
   if(!state.issue.deliveryDate){showToast("納品日を入力してください","error");return;}
   const items=buildInvoiceItems();
-  if(!items.some(i=>!i.isDeliverySite&&i.qty&&parseFloat(i.qty)>0)){showToast("数量を入力してください","error");return;}
-  const missingVarPrice=state.issue.items.some(i=>hasVariablePrice(i)&&i.qty&&parseFloat(i.qty)>0&&!(parseFloat(i.price)>0));
+  if(!items.some(i=>!i.isDeliverySite&&hasNonZeroQty(i.qty))){showToast("数量を入力してください（マイナスは△表示）","error");return;}
+  const missingVarPrice=state.issue.items.some(i=>hasVariablePrice(i)&&hasNonZeroQty(i.qty)&&!(parseFloat(i.price)>0));
   if(missingVarPrice){showToast("都度単価の品目に単価を入力してください","error");return;}
-  const sub=getSubtotal();const mg=state.minG[state.issue.customer]||0;const total=Math.max(sub,mg);
+  const sub=getSubtotal();const mg=state.minG[state.issue.customer]||0;const total=applyMinGuarantee(sub,mg);
   const invNoKey=state.issue.freeCustomer?"__FREE__":state.issue.customer;
   const pendingId=state.issue.pendingId||null;
   let id=Date.now();
@@ -1459,7 +1523,7 @@ function historyRowHtml(h,showCustomer){
   if(isIssueNone(h)){
     return `<tr style="background:#f4f6f7"><td><span class="inv-badge-none">発行なし</span></td>${custCell}<td>${fmtDate(h.deliveryDate)}</td><td>${fmtDate(h.issueDate)}</td>${by}<td style="text-align:right;color:#888">—</td><td style="white-space:nowrap"><button onclick="cancelIssueNone(${h.id})" style="background:#fff;border:1px solid #90a4ae;border-radius:4px;padding:2px 8px;cursor:pointer;font-size:11px;color:#546e7a">取消</button><button class="btn-danger" onclick="deleteHistory(${h.id})">削除</button></td></tr>`;
   }
-  return `<tr style="${h.void?"background:#fff5f5;opacity:0.7":""}"><td><span class="${h.void?"inv-badge-void":"inv-badge"}">${h.invoiceNo}</span>${h.void?"<span style='font-size:11px;color:#c62828;margin-left:4px;font-weight:700'>没</span>":""}</td>${custCell}<td style="${h.void?"text-decoration:line-through;color:#aaa":""}">${fmtDate(h.deliveryDate)}</td><td style="${h.void?"text-decoration:line-through;color:#aaa":""}">${fmtDate(h.issueDate)}</td>${by}<td style="text-align:right;font-weight:600;${h.void?"text-decoration:line-through;color:#aaa":""}">¥${h.total?.toLocaleString()}</td><td style="white-space:nowrap"><button class="btn-edit" onclick="openHistoryEdit(${h.id})">修正</button><button class="btn-reprint" onclick="reprintInvoice(${h.id})">再印刷</button><button onclick="toggleVoid(${h.id})" style="background:${h.void?"#e8f5e9":"#fff3e0"};border:1px solid ${h.void?"#a5d6a7":"#ffcc80"};border-radius:4px;padding:2px 8px;cursor:pointer;font-size:11px;color:${h.void?"#2e7d32":"#e65100"}">${h.void?"復活":"没"}</button><button class="btn-danger" onclick="deleteHistory(${h.id})">削除</button></td></tr>`;
+  return `<tr style="${h.void?"background:#fff5f5;opacity:0.7":""}"><td><span class="${h.void?"inv-badge-void":"inv-badge"}">${h.invoiceNo}</span>${h.void?"<span style='font-size:11px;color:#c62828;margin-left:4px;font-weight:700'>没</span>":""}</td>${custCell}<td style="${h.void?"text-decoration:line-through;color:#aaa":""}">${fmtDate(h.deliveryDate)}</td><td style="${h.void?"text-decoration:line-through;color:#aaa":""}">${fmtDate(h.issueDate)}</td>${by}<td style="text-align:right;font-weight:600;${h.void?"text-decoration:line-through;color:#aaa":""}">${formatSignedYen(h.total||0)}</td><td style="white-space:nowrap"><button class="btn-edit" onclick="openHistoryEdit(${h.id})">修正</button><button class="btn-reprint" onclick="reprintInvoice(${h.id})">再印刷</button><button onclick="toggleVoid(${h.id})" style="background:${h.void?"#e8f5e9":"#fff3e0"};border:1px solid ${h.void?"#a5d6a7":"#ffcc80"};border-radius:4px;padding:2px 8px;cursor:pointer;font-size:11px;color:${h.void?"#2e7d32":"#e65100"}">${h.void?"復活":"没"}</button><button class="btn-danger" onclick="deleteHistory(${h.id})">削除</button></td></tr>`;
 }
 function renderHistoryTab(){
   if(state.editingHistory) return renderHistoryEdit();
@@ -1545,14 +1609,14 @@ function renderHistoryEdit(){
   const itemRows=eh.items.map((item,i)=>`
     <tr>
       <td style="padding:6px 8px"><input value="${item.name}" onchange="state.editingHistory.items[${i}].name=this.value;recalcHistoryTotal()" style="width:100%;padding:4px 8px;border:1px solid #ddd;border-radius:6px;font-size:13px"></td>
-      <td style="padding:6px 8px"><input type="number" value="${item.qty}" onchange="state.editingHistory.items[${i}].qty=this.value;recalcHistoryTotal()" style="width:70px;padding:4px 8px;border:1px solid #ddd;border-radius:6px;font-size:13px;text-align:center"></td>
+      <td style="padding:6px 8px"><input type="text" inputmode="decimal" value="${formatQtyDisplay(item.qty)}" oninput="liveQtyTriangle(this)" onchange="state.editingHistory.items[${i}].qty=normalizeQtyValue(this.value);recalcHistoryTotal()" style="width:70px;padding:4px 8px;border:1px solid #ddd;border-radius:6px;font-size:13px;text-align:center" title="マイナスは△表示"></td>
       <td style="padding:6px 8px"><input type="number" value="${item.price}" onchange="state.editingHistory.items[${i}].price=parseInt(this.value)||0;recalcHistoryTotal()" style="width:80px;padding:4px 8px;border:1px solid #ddd;border-radius:6px;font-size:13px;text-align:right"></td>
-      <td style="padding:6px 8px;text-align:right;font-size:13px">¥${((parseFloat(item.qty)||0)*(parseFloat(item.price)||0)).toLocaleString()}</td>
+      <td style="padding:6px 8px;text-align:right;font-size:13px">${formatSignedYen(qtyAmount(item.qty,item.price))}</td>
       <td style="padding:6px 8px"><button class="btn-danger" onclick="removeHistoryItem(${i})">削除</button></td>
     </tr>`).join("");
-  const sub=eh.items.reduce((s,i)=>(parseFloat(i.qty)||0)*(parseFloat(i.price)||0)+s,0);
+  const sub=eh.items.reduce((s,i)=>s+qtyAmount(i.qty,i.price),0);
   const mg=eh.minGuarantee||0;
-  const total=Math.max(sub,mg);
+  const total=applyMinGuarantee(sub,mg);
   return`
   <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px">
     <button onclick="state.editingHistory=null;render()" style="background:#f0ede8;border:none;padding:8px 16px;border-radius:8px;cursor:pointer;font-size:14px">← 履歴一覧に戻る</button>
@@ -1580,8 +1644,8 @@ function renderHistoryEdit(){
     </table>
     <button onclick="addHistoryItem()" style="margin-top:12px;background:#f5f3ef;border:1px solid #ddd;border-radius:6px;padding:8px 16px;cursor:pointer;font-size:13px">＋ 行追加</button>
     <div class="total-row">
-      ${mg>0&&sub<mg?`<div style="font-size:13px;color:#c17a00">小計 ¥${sub.toLocaleString()} → 最低保証 ¥${mg.toLocaleString()} 適用</div>`:""}
-      <div><div style="font-size:14px;color:#666">合計金額</div><div style="font-size:20px;font-weight:700;color:#1a1a2e">¥${total.toLocaleString()}</div></div>
+      ${mg>0&&sub>0&&sub<mg?`<div style="font-size:13px;color:#c17a00">小計 ${formatSignedYen(sub)} → 最低保証 ¥${mg.toLocaleString()} 適用</div>`:""}
+      <div><div style="font-size:14px;color:#666">合計金額</div><div style="font-size:20px;font-weight:700;color:#1a1a2e">${formatSignedYen(total)}</div></div>
     </div>
   </div>
   <div style="display:flex;gap:12px;justify-content:flex-end">
@@ -1592,17 +1656,17 @@ function renderHistoryEdit(){
 
 function recalcHistoryTotal(){
   const eh=state.editingHistory;
-  const sub=eh.items.reduce((s,i)=>(parseFloat(i.qty)||0)*(parseFloat(i.price)||0)+s,0);
+  const sub=eh.items.reduce((s,i)=>s+qtyAmount(i.qty,i.price),0);
   eh.subtotal=sub;
-  eh.total=Math.max(sub,eh.minGuarantee||0);
+  eh.total=applyMinGuarantee(sub,eh.minGuarantee||0);
   render();
 }
 function removeHistoryItem(i){state.editingHistory.items.splice(i,1);recalcHistoryTotal();}
 function addHistoryItem(){state.editingHistory.items.push({name:"",qty:"",price:0});render();}
 async function saveHistoryEdit(){
   const eh=state.editingHistory;
-  const sub=eh.items.reduce((s,i)=>(parseFloat(i.qty)||0)*(parseFloat(i.price)||0)+s,0);
-  const total=Math.max(sub,eh.minGuarantee||0);
+  const sub=eh.items.reduce((s,i)=>s+qtyAmount(i.qty,i.price),0);
+  const total=applyMinGuarantee(sub,eh.minGuarantee||0);
   state.history=state.history.map(h=>{
     if(h.id!==eh.id)return h;
     const updated={...h,invoiceNo:eh.invoiceNo,deliveryDate:eh.deliveryDate?fromInput(eh.deliveryDate):h.deliveryDate,items:eh.items,subtotal:sub,total};
@@ -2351,10 +2415,10 @@ function formatMeisaiMD(dateVal){
   return (d.getMonth()+1)+"/"+d.getDate();
 }
 function invoicesToMeisaiItems(inv){
-  return (inv.items||[]).filter(it=>!it.isDeliverySite&&it.name&&parseFloat(it.qty)>0).map(it=>({
+  return (inv.items||[]).filter(it=>!it.isDeliverySite&&it.name&&hasNonZeroQty(it.qty)).map(it=>({
     name:it.name,
     price:parseFloat(it.price)||0,
-    qty:parseFloat(it.qty)||0
+    qty:parseQtyNumber(it.qty)||0
   }));
 }
 function calcMeisaiTotalsFromInvoices(invoices){
@@ -2527,7 +2591,7 @@ async function exportMeisaiWorkbook(sheets, filename){
   return true;
 }
 
-function yenTxt(n){return "¥"+Math.round(n||0).toLocaleString();}
+function yenTxt(n){return formatSignedYen(n);}
 function gatherPendingMeisaiSheets(){
   const toMark=pendingBillingInvoices();
   if(!toMark.length)return {error:"未反映の伝票がありません",sheets:[]};
@@ -2618,8 +2682,8 @@ function renderMeisaiSheetHtml(data){
   const total=sub+tax;
   const dateCells=Array.from({length:14},(_,i)=>`<th style="width:42px;text-align:center;font-weight:500">${invoices[i]?formatMeisaiMD(invoices[i].deliveryDate):""}</th>`).join("");
   const body=rows.map(r=>{
-    const qtyCells=r.qtys.map(q=>`<td style="text-align:center">${q||""}</td>`).join("");
-    return `<tr><td style="text-align:left">${r.name}</td><td style="text-align:right">${yenTxt(r.price)}</td>${qtyCells}<td style="text-align:center">${r.qtySum||""}</td><td style="text-align:right">${r.amount?yenTxt(r.amount):""}</td></tr>`;
+    const qtyCells=r.qtys.map(q=>`<td style="text-align:center">${q===0?"":formatQtyDisplay(q)}</td>`).join("");
+    return `<tr><td style="text-align:left">${r.name}</td><td style="text-align:right">${yenTxt(r.price)}</td>${qtyCells}<td style="text-align:center">${r.qtySum?formatQtyDisplay(r.qtySum):""}</td><td style="text-align:right">${r.amount?yenTxt(r.amount):""}</td></tr>`;
   }).join("");
   const emptyCount=Math.max(0, MEISAI_MAX_ITEM_ROWS-rows.length);
   const empty=Array.from({length:emptyCount},()=>`<tr>${"<td>&nbsp;</td>".repeat(18)}</tr>`).join("");
@@ -3132,6 +3196,9 @@ function renderGuideTab(){
   ${guideAcc("issue","📝 伝票発行・品目の追加",`
     <div class="guide-sub">通常の品目</div>
     ${step(1,"客先を選ぶと、登録済み品目が一覧表示されます。数量を入力してください。")}
+    <div class="guide-sub">マイナス伝票（返品・調整）</div>
+    ${step(1,"数量にテンキーの－を入力すると、画面では△表示になります（例：△2）。金額も△になります。")}
+    ${step(2,"印刷・請求明細にも△で載ります。小計が0円以下のときは、最低保証は適用されません。")}
     <div class="guide-sub">イレギュラーな品目</div>
     ${step(1,"「📝 自由入力で追加」で品名・数量・単価を直接入力できます。")}
     ${step(2,"「📋 商品リストから追加」で商品管理の商品を選んで追加できます。")}
@@ -3232,7 +3299,7 @@ function renderGuideTab(){
 function renderPrintModal(directPrint){
   const inv=state.printInvoice;if(!inv)return;
   const modal=document.getElementById("print-modal");
-  const displayItems=inv.items.filter(i=>i.isDeliverySite||parseFloat(i.qty)>0);
+  const displayItems=inv.items.filter(i=>i.isDeliverySite||hasNonZeroQty(i.qty));
   const maxRows=11;
   const bdr="1px solid #000";
   const isMulti=displayItems.length>maxRows;
@@ -3250,9 +3317,9 @@ function renderPrintModal(directPrint){
     const padded=[...items];
     const rows_n=isMulti?maxRows:maxRows;
     while(padded.length<rows_n)padded.push(null);
-    const subtotal=items.filter(i=>!i.isDeliverySite).reduce((s,i)=>s+(parseFloat(i.qty)||0)*(parseFloat(i.price)||0),0);
-    const rows=padded.map(item=>`<tr style="height:9mm"><td style="border:${bdr};padding:0px 5px;font-size:12.5px">${item?item.name:"\u00a0"}</td><td style="border:${bdr};padding:0px 4px;text-align:center;font-size:12.5px;width:44px">${item?item.qty:""}</td><td style="border:${bdr};padding:0px 4px;text-align:right;font-size:12.5px;width:58px">${item?item.price.toLocaleString():""}</td><td style="border:${bdr};padding:0px 4px;text-align:right;font-size:12.5px;width:68px">${item?(parseInt(item.qty)*item.price).toLocaleString():""}</td></tr>`).join("");
-    const totalVal=showTotal?Math.max(subtotal,inv.minGuarantee||0):null;
+    const subtotal=items.filter(i=>!i.isDeliverySite).reduce((s,i)=>s+qtyAmount(i.qty,i.price),0);
+    const rows=padded.map(item=>`<tr style="height:9mm"><td style="border:${bdr};padding:0px 5px;font-size:12.5px">${item?item.name:"\u00a0"}</td><td style="border:${bdr};padding:0px 4px;text-align:center;font-size:12.5px;width:44px">${item?formatQtyDisplay(item.qty):""}</td><td style="border:${bdr};padding:0px 4px;text-align:right;font-size:12.5px;width:58px">${item?item.price.toLocaleString():""}</td><td style="border:${bdr};padding:0px 4px;text-align:right;font-size:12.5px;width:68px">${item?formatSignedNum(qtyAmount(item.qty,item.price)):""}</td></tr>`).join("");
+    const totalVal=showTotal?applyMinGuarantee(subtotal,inv.minGuarantee||0):null;
     return`<div style="flex:1;min-width:0;padding:0 3px;font-family:'MS Mincho',serif;display:flex;flex-direction:column;height:100%">
       <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:1px">
         <div style="font-size:22px;font-weight:700">${isCtrl?"受領書":"納品書"}${pageLabel?`<span style="font-size:13px;margin-left:8px">${pageLabel}</span>`:""}</div>
@@ -3271,9 +3338,9 @@ function renderPrintModal(directPrint){
       <div style="display:flex;align-items:center;border:${bdr};border-top:2px solid #000;margin-top:-1px">
         <div style="flex:1;text-align:right;padding:3px 8px;font-size:11px;white-space:nowrap">${showTotal?"税抜き価格です":"\u00a0"}</div>
         <div style="border-left:${bdr};padding:3px 8px;font-size:11px;display:flex;align-items:center">${showTotal?"合\u3000計":"小\u3000計"}</div>
-        <div style="padding:3px 10px;font-size:16px;font-weight:700;min-width:85px;text-align:right">¥${showTotal?totalVal.toLocaleString():subtotal.toLocaleString()}</div>
+        <div style="padding:3px 10px;font-size:16px;font-weight:700;min-width:85px;text-align:right">${showTotal?formatSignedYen(totalVal):formatSignedYen(subtotal)}</div>
       </div>
-      ${showTotal&&inv.minGuarantee>0&&inv.subtotal<inv.minGuarantee?`<div style="font-size:10px;color:#888;text-align:right">（最低保証 ¥${inv.minGuarantee.toLocaleString()} 適用）</div>`:""}
+      ${showTotal&&inv.minGuarantee>0&&inv.subtotal>0&&inv.subtotal<inv.minGuarantee?`<div style="font-size:10px;color:#888;text-align:right">（最低保証 ¥${inv.minGuarantee.toLocaleString()} 適用）</div>`:""}
       ${showBiko?`<div style="border:${bdr};border-top:none;flex-shrink:0;min-height:59px;padding:2px 6px;margin-top:-1px"><div style="font-size:10px;color:#555;margin-bottom:1px">備\u3000考</div><div style="font-size:11.5px;line-height:1.5;white-space:pre-wrap">${inv.memo||"\u00a0"}</div></div>`:""}
       <div style="display:flex;justify-content:space-between;border:${bdr};border-top:none;height:19mm;margin-top:-1px">
         ${isCtrl?`<div style="border-right:${bdr};min-width:17mm;width:17mm;display:flex;flex-direction:column;align-items:center;justify-content:flex-start;padding-top:2px"><span style="font-size:9px">受領印</span></div>`:""}
@@ -3346,10 +3413,10 @@ function downloadCSV(inv){
       fmtDate(inv.deliveryDate),
       inv.customer,
       item.name,
-      item.qty,
+      formatQtyDisplay(item.qty),
       item.price,
-      parseInt(item.qty)*item.price,
-      i===0?inv.total:"",
+      formatSignedNum(qtyAmount(item.qty,item.price)),
+      i===0?formatSignedNum(inv.total):"",
       i===0?(inv.memo||""):""
     ];
   });
@@ -4106,7 +4173,7 @@ let _statsItemMonth=null;
 let _statsCharts={};
 
 function getValidHistory(){
-  return state.history.filter(h=>isRealInvoice(h)&&h.total>0);
+  return state.history.filter(h=>isRealInvoice(h));
 }
 
 function getAvailableYears(){
@@ -4169,7 +4236,7 @@ function aggregateItemsByCustomer(year,customer,month){
     (h.items||[]).forEach(it=>{
       if(it.isDeliverySite)return;
       const qty=parseFloat(it.qty)||0;
-      if(qty<=0)return;
+      if(!hasNonZeroQty(qty))return;
       const name=String(it.name||"").trim();
       if(!name)return;
       const price=parseFloat(it.price)||0;
