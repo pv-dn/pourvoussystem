@@ -1924,10 +1924,23 @@ function openCustomerDetail(id){
     closingDay:state.closingDays[c.name]!==undefined?state.closingDays[c.name]:"",
     skipHoliday:skipsHolidays(c.name),
     prices:custPrices.map(p=>({...p,qtyTiers:p.qtyTiers?p.qtyTiers.map(t=>({...t})):undefined})),
-    newPriceMode:"fixed",
+    newPriceMode:"",
     newPriceTiers:DEFAULT_QTY_TIERS(),
   };
   render();
+}
+
+function priceModeSelectHtml(selected,onchangeAttr){
+  const list=[
+    {v:"",label:"-- 単価設定方法を選択 --",disabled:true},
+    {v:"fixed",label:"固定単価"},
+    {v:"tiered",label:"数量別単価"},
+    {v:"variable",label:"都度単価"},
+    {v:"dimension",label:"寸法単価"},
+  ];
+  return`<select ${onchangeAttr} style="width:100%;padding:6px 8px;border:1px solid #ddd;border-radius:6px;font-size:13px;background:#fff">
+    ${list.map(o=>`<option value="${o.v}"${selected===o.v?" selected":""}${o.disabled?" disabled":""}>${o.label}</option>`).join("")}
+  </select>`;
 }
 
 function renderCustomerDetail(){
@@ -1973,13 +1986,34 @@ function renderCustomerDetail(){
   }).join("");
 
   const prodOpts=[...state.products].sort((a,b)=>a.name.localeCompare(b.name,'ja')).map(p=>`<option value="${p.code}">${p.name}（${p.code}）</option>`).join("");
-  const addPriceMode=d.newPriceMode||"fixed";
+  const addPriceMode=d.newPriceMode||"";
   const addTierRows=(d.newPriceTiers||DEFAULT_QTY_TIERS()).map((t,ti)=>`<div style="display:grid;grid-template-columns:80px 80px 90px auto;gap:8px;align-items:center;margin-bottom:6px">
     <div><label class="lbl">下限</label><input type="number" value="${t.min}" oninput="state.customerDetail.newPriceTiers[${ti}].min=parseInt(this.value)||0"></div>
     <div><label class="lbl">上限</label><input type="number" value="${t.max==null?'':t.max}" placeholder="以上" oninput="state.customerDetail.newPriceTiers[${ti}].max=this.value?parseInt(this.value):null"></div>
     <div><label class="lbl">単価</label><input type="number" value="${t.price}" oninput="state.customerDetail.newPriceTiers[${ti}].price=parseInt(this.value)||0"></div>
     <button class="btn-danger" style="margin-top:16px" onclick="removeDetailNewPriceTier(${ti})">✕</button>
   </div>`).join("");
+
+  const addFields=addPriceMode==="fixed"?`<div style="display:grid;grid-template-columns:120px auto;gap:8px;align-items:end">
+        <div><label class="lbl">単価</label><input id="dp-price" type="number" placeholder="0"></div>
+        <button class="btn-primary" onclick="addDetailPrice()" style="margin-top:20px">＋ 追加</button>
+      </div>`:addPriceMode==="variable"?`<div style="display:grid;grid-template-columns:120px auto;gap:8px;align-items:end">
+        <div><label class="lbl">参考単価（任意）</label><input id="dp-price" type="number" placeholder="0"></div>
+        <button class="btn-primary" onclick="addDetailPrice()" style="margin-top:20px">＋ 追加</button>
+      </div>`:addPriceMode==="dimension"?`<div style="background:#faf5ff;border:1px solid #ce93d8;border-radius:8px;padding:12px">
+        <div style="font-size:12px;color:#6a1b9a;margin-bottom:8px;line-height:1.5">発行時に縦×横（cm）を入力し、<strong>長い辺のm × 円/m</strong>で単価を自動計算します（例: 500×300 → 5m × ¥400 = ¥2,000）。</div>
+        <div style="display:grid;grid-template-columns:140px auto;gap:8px;align-items:end">
+          <div><label class="lbl">1mあたり（円）</label><input id="dp-meter-rate" type="number" placeholder="400"></div>
+          <button class="btn-primary" onclick="addDetailPrice()" style="margin-top:20px">＋ 追加</button>
+        </div>
+      </div>`:addPriceMode==="tiered"?`<div style="background:#fff8f8;border:1px solid #fecaca;border-radius:8px;padding:12px">
+        <div style="font-size:12px;font-weight:600;color:#b91c1c;margin-bottom:8px">数量別単価（枚数の下限・上限・単価）</div>
+        ${addTierRows}
+        <div style="display:flex;gap:8px;margin-top:8px">
+          <button type="button" onclick="addDetailNewPriceTier()" style="background:#fff;border:1px solid #fca5a5;color:#b91c1c;padding:4px 10px;border-radius:6px;cursor:pointer;font-size:12px">＋ 段階を追加</button>
+          <button class="btn-primary" onclick="addDetailPrice()">＋ 追加</button>
+        </div>
+      </div>`:`<div style="padding:10px 12px;background:#f8f7f4;border:1px dashed #ccc;border-radius:8px;font-size:13px;color:#888">単価設定方法を選ぶと、入力欄が表示されます</div>`;
 
   return`
   <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px">
@@ -2033,35 +2067,11 @@ function renderCustomerDetail(){
         <div><label class="lbl">商品コード</label><select id="dp-code" onchange="setDetailNewCode(this.value)"><option value="">-- 選択 --</option>${prodOpts}</select></div>
         <div><label class="lbl">品名</label><input id="dp-name" placeholder="自動入力"></div>
       </div>
-      <div style="margin-bottom:10px">
-        <label class="lbl">単価の種類</label>
-        <div style="display:flex;gap:8px;margin-top:4px;flex-wrap:wrap">
-          <button type="button" onclick="setDetailNewPriceMode('fixed')" style="padding:8px 16px;border:1px solid ${addPriceMode==='fixed'?'#1a1a2e':'#ddd'};background:${addPriceMode==='fixed'?'#1a1a2e':'#fff'};color:${addPriceMode==='fixed'?'#e8d5b7':'#333'};border-radius:8px;cursor:pointer;font-size:13px;font-weight:600">固定単価</button>
-          <button type="button" onclick="setDetailNewPriceMode('tiered')" style="padding:8px 16px;border:1px solid ${addPriceMode==='tiered'?'#b91c1c':'#ddd'};background:${addPriceMode==='tiered'?'#fef2f2':'#fff'};color:${addPriceMode==='tiered'?'#b91c1c':'#333'};border-radius:8px;cursor:pointer;font-size:13px;font-weight:600">数量別単価</button>
-          <button type="button" onclick="setDetailNewPriceMode('variable')" style="padding:8px 16px;border:1px solid ${addPriceMode==='variable'?'#1565c0':'#ddd'};background:${addPriceMode==='variable'?'#e3f2fd':'#fff'};color:${addPriceMode==='variable'?'#1565c0':'#333'};border-radius:8px;cursor:pointer;font-size:13px;font-weight:600">都度単価</button>
-          <button type="button" onclick="setDetailNewPriceMode('dimension')" style="padding:8px 16px;border:1px solid ${addPriceMode==='dimension'?'#6a1b9a':'#ddd'};background:${addPriceMode==='dimension'?'#f3e5f5':'#fff'};color:${addPriceMode==='dimension'?'#6a1b9a':'#333'};border-radius:8px;cursor:pointer;font-size:13px;font-weight:600">寸法単価</button>
-        </div>
+      <div style="margin-bottom:10px;max-width:280px">
+        <label class="lbl">単価設定方法（必須）</label>
+        ${priceModeSelectHtml(addPriceMode,`onchange="setDetailNewPriceMode(this.value)"`)}
       </div>
-      ${addPriceMode==="fixed"?`<div style="display:grid;grid-template-columns:120px auto;gap:8px;align-items:end">
-        <div><label class="lbl">単価</label><input id="dp-price" type="number" placeholder="0"></div>
-        <button class="btn-primary" onclick="addDetailPrice()" style="margin-top:20px">＋ 追加</button>
-      </div>`:addPriceMode==="variable"?`<div style="display:grid;grid-template-columns:120px auto;gap:8px;align-items:end">
-        <div><label class="lbl">参考単価（任意）</label><input id="dp-price" type="number" placeholder="0"></div>
-        <button class="btn-primary" onclick="addDetailPrice()" style="margin-top:20px">＋ 追加</button>
-      </div>`:addPriceMode==="dimension"?`<div style="background:#faf5ff;border:1px solid #ce93d8;border-radius:8px;padding:12px">
-        <div style="font-size:12px;color:#6a1b9a;margin-bottom:8px;line-height:1.5">発行時に縦×横（cm）を入力し、<strong>長い辺のm × 円/m</strong>で単価を自動計算します（例: 500×300 → 5m × ¥400 = ¥2,000）。</div>
-        <div style="display:grid;grid-template-columns:140px auto;gap:8px;align-items:end">
-          <div><label class="lbl">1mあたり（円）</label><input id="dp-meter-rate" type="number" placeholder="400"></div>
-          <button class="btn-primary" onclick="addDetailPrice()" style="margin-top:20px">＋ 追加</button>
-        </div>
-      </div>`:`<div style="background:#fff8f8;border:1px solid #fecaca;border-radius:8px;padding:12px">
-        <div style="font-size:12px;font-weight:600;color:#b91c1c;margin-bottom:8px">数量別単価（枚数の下限・上限・単価）</div>
-        ${addTierRows}
-        <div style="display:flex;gap:8px;margin-top:8px">
-          <button type="button" onclick="addDetailNewPriceTier()" style="background:#fff;border:1px solid #fca5a5;color:#b91c1c;padding:4px 10px;border-radius:6px;cursor:pointer;font-size:12px">＋ 段階を追加</button>
-          <button class="btn-primary" onclick="addDetailPrice()">＋ 追加</button>
-        </div>
-      </div>`}
+      ${addFields}
     </div>
   </div>
 
@@ -2094,7 +2104,7 @@ function setDetailNewCode(v){
 }
 function setDetailNewPriceMode(mode){
   if(!state.customerDetail)return;
-  state.customerDetail.newPriceMode=mode;
+  state.customerDetail.newPriceMode=mode||"";
   if(mode==="tiered"){
     const priceEl=document.getElementById("dp-price");
     const base=priceEl?parseInt(priceEl.value)||0:0;
@@ -2120,6 +2130,7 @@ function removeDetailNewPriceTier(ti){
 
 function setDetailPriceType(i,type){
   const p=state.customerDetail.prices[i];
+  if(!type){showToast("単価設定方法を選んでください","error");render();return;}
   if(type==="fixed"){
     delete p.qtyTiers;
     delete p.variablePrice;
@@ -2166,7 +2177,8 @@ function addDetailPrice(){
   const code=document.getElementById("dp-code").value;
   const name=document.getElementById("dp-name").value;
   if(!code||!name){showToast("コードと品名を入力してください","error");return;}
-  const mode=state.customerDetail.newPriceMode||"fixed";
+  const mode=state.customerDetail.newPriceMode||"";
+  if(!mode){showToast("単価設定方法を選んでください","error");return;}
   const row={customer:state.customerDetail.name,code,name,price:0};
   if(mode==="tiered"){
     const tiers=(state.customerDetail.newPriceTiers||[]).map(t=>({min:t.min??1,max:t.max==null?null:t.max,price:parseInt(t.price)||0}));
@@ -2189,7 +2201,7 @@ function addDetailPrice(){
     row.price=price;
   }
   state.customerDetail.prices.push(row);
-  state.customerDetail.newPriceMode="fixed";
+  state.customerDetail.newPriceMode="";
   state.customerDetail.newPriceTiers=DEFAULT_QTY_TIERS();
   render();
 }
