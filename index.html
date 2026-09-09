@@ -446,6 +446,7 @@ const TABS=["伝票発行","発行履歴","📊 売上統計","📂 データ","
 const DAY_NAMES=["日","月","火","水","木","金","土"];
 /** 更新情報: 機能更新と機能的なバグ修正のみ（文言調整・Tipsは載せない）。新しいものを先頭へ。 */
 const APP_UPDATES=[
+  {date:"2026-09-09",kind:"機能",title:"同一納品日ロック・訂正再発行",items:["同じ客先・同じ納品日の新規打ち直しはできない","警告から訂正再発行へ進める（発行履歴からも可）","訂正すると履歴に訂正日時・訂正者・回数が残る"]},
   {date:"2026-09-09",kind:"機能",title:"請求明細書の客先切替",items:["確認画面の上部で客先を選べる（全客先／個別）","「次へ」「前へ」で次の客先へ移動（同一客先の複数枚はまとめて送る）","左の一覧タップでも切替可能"]},
   {date:"2026-09-08",kind:"機能",title:"寸法単価（紅白幕など）",items:["客先詳細で「寸法単価」を設定し、1mあたりの単価を登録できる","発行時に縦×横（cm）を入力すると、長い辺のm×単価で自動計算","印刷の品名に寸法（例：紅白幕（500×300））が付く"]},
   {date:"2026-09",kind:"機能",title:"マイナス伝票（数量マイナス）",items:["数量にマイナスを入力して返品・調整の伝票を発行できる","テンキーの－は△表示。印刷・請求明細も△で表示","小計が0以下のときは最低保証を適用しない"]},
@@ -520,6 +521,7 @@ let state={
   dataEditLogs:load("pv_data_edit_logs",[]),
   minG:load("pv_min",INIT_MIN),
   issue:{customer:"",freeCustomer:false,deliveryDate:"",deliverySite:"",items:[],customItems:[{name:"",qty:"",price:""}],useCustom:false,customPanelOpen:false,memo:"",pendingId:null},
+  correctingHistId:null,
   histSearch:"",
   custSearch:"",
   editingCustomer:null,
@@ -874,6 +876,108 @@ function nextDelivery(name){
 }
 function isIssueNone(h){return !!(h&&h.issueNone);}
 function isRealInvoice(h){return h&&!h.void&&!h.issueNone;}
+function deliveryDateMatchKey(ds){
+  if(ds==null||ds==="")return"";
+  if(typeof ds==="string"&&/^\d{4}-\d{2}-\d{2}$/.test(ds)){
+    const[y,m,d]=ds.split("-");
+    return`${y}/${m}/${d}`;
+  }
+  return fmtDate(ds instanceof Date?ds:new Date(ds));
+}
+function findHistByCustomerDelivery(customer,ds){
+  const key=deliveryDateMatchKey(ds);
+  if(!customer||!key)return null;
+  return(state.history||[]).find(h=>isRealInvoice(h)&&h.customer===customer&&deliveryDateMatchKey(h.deliveryDate)===key)||null;
+}
+function nowCorrectionStamp(){
+  const d=new Date();
+  return`${fmtDate(d)} ${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`;
+}
+function parseDimFromItemName(name){
+  const m=String(name||"").match(/[（(]\s*(\d+(?:\.\d+)?)\s*[×xX]\s*(\d+(?:\.\d+)?)\s*[）)]/);
+  if(!m)return null;
+  return{w:parseFloat(m[1]),h:parseFloat(m[2])};
+}
+function cancelHistCorrect(){
+  state.correctingHistId=null;
+  showToast("訂正再発行をやめました");
+  render();
+}
+function startHistCorrect(id){
+  const h=(state.history||[]).find(x=>x.id===id);
+  if(!h||!isRealInvoice(h)){showToast("履歴が見つかりません","error");return;}
+  state.editingHistory=null;
+  state.correctingHistId=h.id;
+  state.issue.pendingId=null;
+  state.issue.memo=h.memo||"";
+  state.issue.deliveryDate=toInput(h.deliveryDate instanceof Date?h.deliveryDate:new Date(h.deliveryDate));
+  state.issue.deliverySite=h.deliverySite||(isKanagawaRodoCustomer(h.customer)?KANAGAWA_RODO_SITES[0]:"");
+  const inMaster=(state.customers||[]).some(c=>c.name===h.customer);
+  const histItems=(h.items||[]).filter(it=>!it.isDeliverySite);
+  if(!inMaster){
+    state.issue.freeCustomer=true;
+    state.issue.customer=h.customer||"";
+    state.issue.items=[];
+    state.issue.customItems=histItems.length?histItems.map(it=>({name:it.name||"",qty:it.qty??"",price:it.price??""})):[{name:"",qty:"",price:""}];
+    state.issue.useCustom=true;
+    state.issue.customPanelOpen=true;
+  }else{
+    state.issue.freeCustomer=false;
+    state.issue.customer=h.customer;
+    const cp=state.prices.filter(p=>p.customer===h.customer);
+    const used=new Set();
+    state.issue.items=cp.map(p=>{
+      const item={...p,qty:""};
+      if(hasQtyTiers(p)){
+        item.qtyTiers=p.qtyTiers.map(t=>({...t}));
+        item.price=resolveUnitPrice(p,0);
+      }else if(hasDimensionPrice(p)){
+        item.dimensionPrice=true;
+        item.meterRate=getMeterRate(p);
+        item.baseName=p.name;
+        item.dimW="";
+        item.dimH="";
+        item.price="";
+      }else if(hasVariablePrice(p)){
+        item.refPrice=p.price||0;
+        item.price="";
+      }
+      const hi=histItems.findIndex((it,idx)=>{
+        if(used.has(idx))return false;
+        if(it.code&&p.code&&it.code===p.code)return true;
+        if(it.baseName&&it.baseName===p.name)return true;
+        if(it.name===p.name)return true;
+        if(String(it.name||"").startsWith(p.name+"（")||String(it.name||"").startsWith(p.name+"("))return true;
+        return false;
+      });
+      if(hi>=0){
+        used.add(hi);
+        const it=histItems[hi];
+        item.qty=it.qty??"";
+        if(hasDimensionPrice(p)){
+          const dim=it.dimW!=null&&it.dimH!=null?{w:it.dimW,h:it.dimH}:parseDimFromItemName(it.name);
+          if(dim){item.dimW=dim.w;item.dimH=dim.h;}
+          item.price=it.price||(hasDimensionComplete(item)?resolveDimensionUnitPrice(item):"");
+        }else if(hasVariablePrice(p)){
+          item.price=it.price||"";
+        }else if(hasQtyTiers(p)){
+          item.price=resolveUnitPrice(p,item.qty);
+        }else if(it.price!=null&&it.price!==""){
+          item.price=it.price;
+        }
+      }
+      return item;
+    });
+    const leftovers=histItems.filter((_,idx)=>!used.has(idx));
+    state.issue.customItems=leftovers.length?leftovers.map(it=>({name:it.name||"",qty:it.qty??"",price:it.price??""})):[{name:"",qty:"",price:""}];
+    state.issue.useCustom=leftovers.length>0||cp.length===0;
+    state.issue.customPanelOpen=leftovers.length>0||cp.length===0;
+  }
+  state.tab=0;
+  render();
+  focusFirstQtyInput();
+  showToast("履歴から読み込みました。数量を直して訂正再発行してください");
+}
 function historyDeliveryKey(h){
   if(!h||h.deliveryDate==null||h.deliveryDate==="")return "";
   return toInput(h.deliveryDate instanceof Date?h.deliveryDate:new Date(h.deliveryDate));
@@ -950,6 +1054,7 @@ function issueHasQty(){
   return listQty||customQty;
 }
 async function saveIssueForLater(){
+  if(state.correctingHistId!=null){showToast("訂正再発行中は「あとで発行」できません","error");return;}
   if(window._savingPending){showToast("保存中です","error");return;}
   if(!state.issue.customer&&!state.issue.freeCustomer){showToast("客先を選択してください","error");return;}
   if(state.issue.freeCustomer&&!state.issue.customer.trim()){showToast("客先名を入力してください","error");return;}
@@ -1002,6 +1107,7 @@ async function saveIssueForLater(){
 function openPendingIssue(id){
   const p=(state.pendingIssues||[]).find(x=>x.id===id);
   if(!p)return;
+  state.correctingHistId=null;
   state.issue={
     customer:p.customer||"",
     freeCustomer:!!p.freeCustomer,
@@ -1229,6 +1335,12 @@ function renderIssueTab(){
   const freeInput=iss.freeCustomer?`<input type="text" id="free-customer-input" placeholder="客先名を入力してください" value="${String(iss.customer||"").replace(/&/g,"&amp;").replace(/"/g,"&quot;").replace(/</g,"&lt;")}" oninput="state.issue.customer=this.value;state.issue.pendingId=null" style="margin-top:6px;width:100%;padding:9px 12px;border:1px solid #1a73e8;border-radius:8px;font-size:14px">`:""
   const custDisplayName=iss.freeCustomer?"＋ リスト外の客先を入力":iss.customer
   const pendingBanner=iss.pendingId?`<div style="margin-bottom:12px;padding:10px 14px;background:#fff8e1;border:1px solid #ffe082;border-radius:8px;font-size:13px;color:#5d4037;line-height:1.6">📌 <strong>あとで発行</strong>から読み込み中です。納品日を入力して「納品書を発行する」を押してください。</div>`:"";
+  const correctingHist=state.correctingHistId!=null?(state.history||[]).find(h=>h.id===state.correctingHistId):null;
+  const correctBanner=correctingHist?`<div style="margin-bottom:12px;padding:10px 14px;background:#fff8e1;border:1px solid #f0c36d;border-radius:8px;font-size:13px;color:#854f0b;line-height:1.6;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+    <div style="flex:1;min-width:200px"><strong>訂正再発行モード</strong>　${String(correctingHist.customer||"").replace(/</g,"&lt;")}　／　納品日 ${fmtDate(correctingHist.deliveryDate)}　／　${correctingHist.invoiceNo||""}<div style="font-size:12px;margin-top:4px">数量を直して「訂正して再発行する」を押してください。記録が履歴に残ります。</div></div>
+    <button type="button" onclick="cancelHistCorrect()" style="background:#fff;border:1px solid #e0c080;border-radius:6px;padding:6px 12px;cursor:pointer;font-size:12px;color:#854f0b;font-weight:600">訂正をやめる</button>
+  </div>`:"";
+  const issueBtnLabel=correctingHist?"訂正して再発行する":"納品書を発行する";
   return`<div style="position:sticky;top:0;z-index:100;background:#f8f7f4;padding:16px 0 8px">
   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;gap:12px;flex-wrap:wrap">
     <h2 style="font-size:20px;font-weight:600;color:#1a1a2e;margin:0">納品書発行</h2>
@@ -1245,20 +1357,21 @@ function renderIssueTab(){
         :`<input type="date" style="color:transparent">`}
       </div>
     </div>
-    ${(iss.customer||iss.freeCustomer)?`<div style="margin-top:8px;font-size:13px;color:#666">伝票番号（予定）：<strong>${invNo}</strong>${mg>0?`<span style="margin-left:16px;color:#c17a00">最低保証：¥${mg.toLocaleString()}</span>`:""}
+    ${(iss.customer||iss.freeCustomer)?`<div style="margin-top:8px;font-size:13px;color:#666">伝票番号（予定）：<strong>${correctingHist?correctingHist.invoiceNo:invNo}</strong>${mg>0?`<span style="margin-left:16px;color:#c17a00">最低保証：¥${mg.toLocaleString()}</span>`:""}
     </div>`:""}
     ${isRodo?`<div style="margin-top:12px"><label class="lbl">納品先（品目1行目に表示）</label><select onchange="state.issue.deliverySite=this.value;render()" style="width:100%">${rodoSiteOpts}</select></div>`:""}
   </div>
 </div>
   ${(iss.customer||iss.freeCustomer)?`<div class="card">
+    ${correctBanner}
     ${pendingBanner}
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
       <h3 style="margin:0">品目・数量入力</h3>
       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
         <button onclick="addCustomItem()" style="background:#e8f0fe;border:1px solid #a8c0f0;border-radius:6px;padding:6px 12px;cursor:pointer;font-size:12px;color:#1a1a2e">📝 自由入力で追加</button>
         <button onclick="showProductPicker()" style="background:#e8f5e9;border:1px solid #a5d6a7;border-radius:6px;padding:6px 12px;cursor:pointer;font-size:12px;color:#1a1a2e">📋 商品リストから追加</button>
-        <button onclick="saveIssueForLater()" style="background:#e3f2fd;border:1px solid #90caf9;border-radius:6px;padding:8px 16px;cursor:pointer;font-size:13px;color:#1565c0;font-weight:600">あとで発行</button>
-        <button class="btn-primary" style="padding:8px 20px;font-size:13px;margin-left:auto" onclick="issueInvoice()">納品書を発行する</button>
+        ${correctingHist?"":`<button onclick="saveIssueForLater()" style="background:#e3f2fd;border:1px solid #90caf9;border-radius:6px;padding:8px 16px;cursor:pointer;font-size:13px;color:#1565c0;font-weight:600">あとで発行</button>`}
+        <button class="btn-primary" style="padding:8px 20px;font-size:13px;margin-left:auto;${correctingHist?"background:#854f0b;color:#fff":""}" onclick="issueInvoice()">${issueBtnLabel}</button>
       </div>
     </div>
     ${itemsHtml}
@@ -1270,8 +1383,8 @@ function renderIssueTab(){
       <div id="issue-mg-note">${mg>0&&sub>0&&sub<mg?`<div style="font-size:13px;color:#c17a00">小計 ${formatSignedYen(sub)} → 最低保証 ¥${mg.toLocaleString()} 適用</div>`:""}</div>
       <div><div style="font-size:14px;color:#666">合計金額</div><div id="issue-total-amount" style="font-size:20px;font-weight:700;color:#1a1a2e">${formatSignedYen(total)}</div></div>
     </div>
-    <button class="issue-btn" onclick="issueInvoice()">納品書を発行する</button>
-    <button type="button" onclick="saveIssueForLater()" style="display:block;width:100%;margin-top:10px;background:#e3f2fd;border:1px solid #90caf9;border-radius:8px;padding:12px;cursor:pointer;font-size:14px;color:#1565c0;font-weight:600;font-family:inherit">あとで発行（納品日未定で保存）</button>
+    <button class="issue-btn" onclick="issueInvoice()" style="${correctingHist?"background:#854f0b":""}">${issueBtnLabel}</button>
+    ${correctingHist?"":`<button type="button" onclick="saveIssueForLater()" style="display:block;width:100%;margin-top:10px;background:#e3f2fd;border:1px solid #90caf9;border-radius:8px;padding:12px;cursor:pointer;font-size:14px;color:#1565c0;font-weight:600;font-family:inherit">あとで発行（納品日未定で保存）</button>`}
   </div>`:""}`;
 }
 
@@ -1281,6 +1394,7 @@ function resetIssueCustomItems(){
 }
 
 function selectCustomer(name){
+  if(state.correctingHistId!=null)state.correctingHistId=null;
   state.issue.pendingId=null;
   if(name==="__FREE__"){
     state.issue.freeCustomer=true;
@@ -1490,23 +1604,68 @@ async function issueInvoice(){
   if(missingVarPrice){showToast("都度単価の品目に単価を入力してください","error");return;}
   const missingDim=state.issue.items.some(i=>hasDimensionPrice(i)&&hasNonZeroQty(i.qty)&&!hasDimensionComplete(i));
   if(missingDim){showToast("寸法単価の品目に縦×横（cm）を入力してください","error");return;}
+  const correctingId=state.correctingHistId;
+  const correctingHist=correctingId!=null?(state.history||[]).find(h=>h.id===correctingId):null;
+  if(correctingId!=null&&!correctingHist){
+    state.correctingHistId=null;
+    showToast("訂正対象の履歴が見つかりません","error");
+    return;
+  }
+  const sameDayHist=findHistByCustomerDelivery(state.issue.customer,state.issue.deliveryDate);
+  if(sameDayHist&&(!correctingHist||sameDayHist.id!==correctingHist.id)){
+    const dateLabel=fmtDate(fromInput(state.issue.deliveryDate))||state.issue.deliveryDate;
+    const go=confirm(`同じ客先・同じ納品日の伝票が既にあります。\n新しく打ち直しての発行はできません。\n\n客先: ${state.issue.customer}\n納品日: ${dateLabel}${sameDayHist.invoiceNo?`\n（既存の伝票番号: ${sameDayHist.invoiceNo}）`:""}\n\n訂正して再発行しますか？`);
+    if(go)startHistCorrect(sameDayHist.id);
+    else showToast("発行をキャンセルしました。訂正は発行履歴から行えます","error");
+    return;
+  }
+  const isCorrection=!!correctingHist;
   const sub=getSubtotal();const mg=state.minG[state.issue.customer]||0;const total=applyMinGuarantee(sub,mg);
   const invNoKey=state.issue.freeCustomer?"__FREE__":state.issue.customer;
   const pendingId=state.issue.pendingId||null;
-  let id=Date.now();
-  while(state.history.some(h=>h.id===id))id++;
-  const inv={id,invoiceNo:nextInvoiceNo(invNoKey),customer:state.issue.customer,deliveryDate:state.issue.deliveryDate?fromInput(state.issue.deliveryDate):new Date(),issueDate:new Date(),items,subtotal:sub,minGuarantee:mg,total,memo:state.issue.memo||"",deliverySite:state.issue.deliverySite||"",issuedBy:window._userShortId||"",issuedByName:window._userDisplayName||""};
+  let inv;
+  let rollbackSnapshot=null;
+  if(isCorrection){
+    rollbackSnapshot={...correctingHist,items:(correctingHist.items||[]).map(i=>({...i}))};
+    inv={
+      ...correctingHist,
+      customer:state.issue.customer,
+      deliveryDate:state.issue.deliveryDate?fromInput(state.issue.deliveryDate):correctingHist.deliveryDate,
+      items,
+      subtotal:sub,
+      minGuarantee:mg,
+      total,
+      memo:state.issue.memo||"",
+      deliverySite:state.issue.deliverySite||"",
+      correctedAt:nowCorrectionStamp(),
+      correctedBy:window._userShortId||"",
+      correctedByName:window._userDisplayName||"",
+      correctionCount:(Number(correctingHist.correctionCount)||0)+1,
+    };
+    delete inv.billingExportedAt;
+    delete inv.billingSkippedAt;
+  }else{
+    let id=Date.now();
+    while(state.history.some(h=>h.id===id))id++;
+    inv={id,invoiceNo:nextInvoiceNo(invNoKey),customer:state.issue.customer,deliveryDate:state.issue.deliveryDate?fromInput(state.issue.deliveryDate):new Date(),issueDate:new Date(),items,subtotal:sub,minGuarantee:mg,total,memo:state.issue.memo||"",deliverySite:state.issue.deliverySite||"",issuedBy:window._userShortId||"",issuedByName:window._userDisplayName||""};
+  }
   window._issuingBusy=true;
   window._issuingInvoice=true;
-  state.history.unshift(inv);
-  showToast("保存中...");
+  if(isCorrection){
+    state.history=state.history.map(h=>h.id===inv.id?inv:h);
+  }else{
+    state.history.unshift(inv);
+  }
+  showToast(isCorrection?"訂正再発行を保存中...":"保存中...");
   try{
     await saveHistoryMerged(state.history);
-    const invPrefix=inv.invoiceNo.split("-")[0];
-    const invNum=parseInt((inv.invoiceNo.split("-P")[1])||0);
-    if(!state.invoiceCounters[invPrefix]||state.invoiceCounters[invPrefix]<invNum){
-      state.invoiceCounters[invPrefix]=invNum;
-      save("pv_invoice_counters",state.invoiceCounters);
+    if(!isCorrection){
+      const invPrefix=inv.invoiceNo.split("-")[0];
+      const invNum=parseInt((inv.invoiceNo.split("-P")[1])||0);
+      if(!state.invoiceCounters[invPrefix]||state.invoiceCounters[invPrefix]<invNum){
+        state.invoiceCounters[invPrefix]=invNum;
+        save("pv_invoice_counters",state.invoiceCounters);
+      }
     }
     const threeMonthsAgo=new Date();threeMonthsAgo.setMonth(threeMonthsAgo.getMonth()-3);
     const gone=state.history.filter(h=>new Date(h.issueDate)<threeMonthsAgo).map(h=>h.id);
@@ -1523,13 +1682,17 @@ async function issueInvoice(){
         issuedBy:inv.issuedBy||"",
         issuedByName:inv.issuedByName||"",
         deliveryDate:inv.deliveryDate instanceof Date?inv.deliveryDate.toISOString():inv.deliveryDate,
-        issuedAt:new Date().toISOString()
+        issuedAt:new Date().toISOString(),
+        isCorrection:!!isCorrection,
+        correctedBy:isCorrection?(inv.correctedBy||""):"",
+        correctionCount:isCorrection?(inv.correctionCount||1):0
       });
     }catch(e){console.warn("発行ログ保存エラー",e);}
     if(pendingId){
       state.pendingIssues=(state.pendingIssues||[]).filter(x=>x.id!==pendingId);
       save("pv_pending_issues",state.pendingIssues);
     }
+    state.correctingHistId=null;
     state.issue.pendingId=null;
     state.issue.freeCustomer=false;state.issue.memo="";
     state.issue.items=state.issue.items.map(i=>{
@@ -1541,9 +1704,14 @@ async function issueInvoice(){
     state.issue.customItems=[{name:"",qty:"",price:""}];
     state.issue.customPanelOpen=false;
     state.printInvoice=inv;render();renderPrintModal(true);
+    if(isCorrection)showToast("訂正再発行しました");
   }catch(e){
     console.error("履歴保存エラー",e);
-    state.history=state.history.filter(h=>h.id!==inv.id);
+    if(isCorrection&&rollbackSnapshot){
+      state.history=state.history.map(h=>h.id===rollbackSnapshot.id?rollbackSnapshot:h);
+    }else{
+      state.history=state.history.filter(h=>h.id!==inv.id);
+    }
     try{localStorage.setItem("pv_history",JSON.stringify(state.history));}catch{}
     showToast("⚠️ 履歴の保存に失敗しました。ネットワークを確認してください。","error");
     render();
@@ -1624,7 +1792,9 @@ function historyRowHtml(h,showCustomer){
   if(isIssueNone(h)){
     return `<tr style="background:#f4f6f7"><td><span class="inv-badge-none">発行なし</span></td>${custCell}<td>${fmtDate(h.deliveryDate)}</td><td>${fmtDate(h.issueDate)}</td>${by}<td style="text-align:right;color:#888">—</td><td style="white-space:nowrap"><button onclick="cancelIssueNone(${h.id})" style="background:#fff;border:1px solid #90a4ae;border-radius:4px;padding:2px 8px;cursor:pointer;font-size:11px;color:#546e7a">取消</button><button class="btn-danger" onclick="deleteHistory(${h.id})">削除</button></td></tr>`;
   }
-  return `<tr style="${h.void?"background:#fff5f5;opacity:0.7":""}"><td><span class="${h.void?"inv-badge-void":"inv-badge"}">${h.invoiceNo}</span>${h.void?"<span style='font-size:11px;color:#c62828;margin-left:4px;font-weight:700'>没</span>":""}</td>${custCell}<td style="${h.void?"text-decoration:line-through;color:#aaa":""}">${fmtDate(h.deliveryDate)}</td><td style="${h.void?"text-decoration:line-through;color:#aaa":""}">${fmtDate(h.issueDate)}</td>${by}<td style="text-align:right;font-weight:600;${h.void?"text-decoration:line-through;color:#aaa":""}">${formatSignedYen(h.total||0)}</td><td style="white-space:nowrap"><button class="btn-edit" onclick="openHistoryEdit(${h.id})">修正</button><button class="btn-reprint" onclick="reprintInvoice(${h.id})">再印刷</button><button onclick="toggleVoid(${h.id})" style="background:${h.void?"#e8f5e9":"#fff3e0"};border:1px solid ${h.void?"#a5d6a7":"#ffcc80"};border-radius:4px;padding:2px 8px;cursor:pointer;font-size:11px;color:${h.void?"#2e7d32":"#e65100"}">${h.void?"復活":"没"}</button><button class="btn-danger" onclick="deleteHistory(${h.id})">削除</button></td></tr>`;
+  const corrBadge=h.correctedAt?`<span style="display:inline-block;margin-left:6px;padding:1px 7px;border-radius:8px;background:#fff3cd;color:#854f0b;font-size:10px;font-weight:700;vertical-align:middle">訂正再発行${h.correctionCount>1?`×${h.correctionCount}`:""}</span>`:"";
+  const corrTitle=h.correctedAt?` title="訂正: ${String(h.correctedAt).replace(/"/g,"&quot;")}${h.correctedBy?` (${String(h.correctedBy).replace(/"/g,"&quot;")})`:""}"`:"";
+  return `<tr style="${h.void?"background:#fff5f5;opacity:0.7":""}"><td${corrTitle}><span class="${h.void?"inv-badge-void":"inv-badge"}">${h.invoiceNo}</span>${h.void?"<span style='font-size:11px;color:#c62828;margin-left:4px;font-weight:700'>没</span>":""}${corrBadge}</td>${custCell}<td style="${h.void?"text-decoration:line-through;color:#aaa":""}">${fmtDate(h.deliveryDate)}</td><td style="${h.void?"text-decoration:line-through;color:#aaa":""}">${fmtDate(h.issueDate)}</td>${by}<td style="text-align:right;font-weight:600;${h.void?"text-decoration:line-through;color:#aaa":""}">${formatSignedYen(h.total||0)}</td><td style="white-space:nowrap"><button class="btn-edit" onclick="openHistoryEdit(${h.id})">修正</button>${h.void?"":`<button onclick="startHistCorrect(${h.id})" style="background:#fff8e1;border:1px solid #f0c36d;border-radius:4px;padding:2px 8px;cursor:pointer;font-size:11px;color:#854f0b;margin-right:4px;font-weight:600">訂正再発行</button>`}<button class="btn-reprint" onclick="reprintInvoice(${h.id})">再印刷</button><button onclick="toggleVoid(${h.id})" style="background:${h.void?"#e8f5e9":"#fff3e0"};border:1px solid ${h.void?"#a5d6a7":"#ffcc80"};border-radius:4px;padding:2px 8px;cursor:pointer;font-size:11px;color:${h.void?"#2e7d32":"#e65100"}">${h.void?"復活":"没"}</button><button class="btn-danger" onclick="deleteHistory(${h.id})">削除</button></td></tr>`;
 }
 function renderHistoryTab(){
   if(state.editingHistory) return renderHistoryEdit();
@@ -3390,6 +3560,7 @@ function renderGuideTab(){
     ${step(3,"<strong>客先を選択</strong>　「伝票発行」タブで客先を選びます。納品日がサイクルから自動で入ります。")}
     ${step(4,"<strong>数量を入力</strong>　品目の数量を入力します。Enterで次の行へ進めます。合計は自動計算されます。")}
     ${step(5,"<strong>納品書を発行・印刷</strong>　「納品書を発行する」→「印刷（B5横）」で印刷します。中央の破線で半分に切り、お客様控えと社内控えに分けます。")}
+    <div class="guide-note">⚠️ 同じ客先・同じ納品日の伝票が既にあると新規発行できません。警告から「訂正して再発行」へ進むか、発行履歴の「訂正再発行」で直します。訂正日時が履歴に残ります。</div>
     ${step(6,"<strong>請求明細書を確認・印刷</strong>　「請求」タブで年月を選び「👁 確認する」。チェックして「選択して印刷」、または「全件印刷」。")}
     <div class="guide-note">明細書には同じ請求月の反映済みも含めて月全体が載ります（正式な請求明細のため）。「反映済み」になるのは未反映分だけです。誤って反映した場合は「↩ 反映を取り消す」で戻せます。</div>
     <div class="guide-warn">使い終わったら右上の「ログアウト」を必ず押してください。</div>
@@ -3847,8 +4018,11 @@ window.cancelIssueNone=cancelIssueNone;
 window.saveIssueForLater=saveIssueForLater;
 window.openPendingIssue=openPendingIssue;
 window.deletePendingIssue=deletePendingIssue;
+window.startHistCorrect=startHistCorrect;
+window.cancelHistCorrect=cancelHistCorrect;
 
 function selectCustomerFromSidebar(customerName,dateStr){
+  state.correctingHistId=null;
   state.issue.pendingId=null;
   state.issue.freeCustomer=false;
   state.issue.customer=customerName;
