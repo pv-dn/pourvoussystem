@@ -293,6 +293,7 @@ td{padding:9px 8px;border-bottom:.5px solid #f0ede8;font-size:13px;overflow:hidd
 .meisai-table-wrap tbody tr{height:30px}
 .meisai-col-name{width:160px}
 .meisai-col-price{width:70px}
+.meisai-col-day{width:42px}
 .meisai-col-qty{width:56px}
 .meisai-col-amt{width:80px}
 .meisai-cust-list{width:260px;flex-shrink:0;border:1px solid #e8e4de;border-radius:10px;background:#faf9f6;overflow:hidden;display:flex;flex-direction:column;max-height:calc(90vh - 100px)}
@@ -3002,7 +3003,7 @@ function renderMeisaiSheetHtml(data){
   const sub=rows.reduce((s,r)=>s+r.amount,0);
   const tax=Math.round(sub*0.1);
   const total=sub+tax;
-  const dateCells=Array.from({length:14},(_,i)=>`<th style="width:42px;text-align:center;font-weight:500">${invoices[i]?formatMeisaiMD(invoices[i].deliveryDate):""}</th>`).join("");
+  const dateCells=Array.from({length:14},(_,i)=>`<th class="meisai-col-day" style="text-align:center;font-weight:500">${invoices[i]?formatMeisaiMD(invoices[i].deliveryDate):""}</th>`).join("");
   const body=rows.map(r=>{
     const qtyCells=r.qtys.map(q=>`<td style="text-align:center">${q===0?"":formatQtyDisplay(q)}</td>`).join("");
     return `<tr><td style="text-align:left">${r.name}</td><td style="text-align:right">${yenTxt(r.price)}</td>${qtyCells}<td style="text-align:center">${r.qtySum?formatQtyDisplay(r.qtySum):""}</td><td style="text-align:right">${r.amount?yenTxt(r.amount):""}</td></tr>`;
@@ -3083,15 +3084,15 @@ async function downloadOpenMeisai(){
   if(ok)showToast(fname+" をダウンロードしました");
 }
 function meisaiPrintCss(){
-  return `@page{size:A4 landscape;margin:8mm 10mm 12mm 10mm}
-      html,body{margin:0}
+  return `@page{size:A4 landscape;margin:8mm 8mm 10mm 8mm}
+      html,body{margin:0;padding:0}
       body{font-family:'Noto Sans JP',sans-serif;color:#111}
-      .meisai-sheet{min-width:0!important;box-sizing:border-box;page-break-after:always}
+      .meisai-sheet{width:100%;max-width:100%;min-width:0!important;box-sizing:border-box;page-break-after:always;overflow:hidden}
       .meisai-sheet:last-child{page-break-after:auto}
       .meisai-screen-only{display:none!important}
       .meisai-title{text-align:center;font-size:22px;font-weight:700;letter-spacing:.5em;padding:10px 0 12px;border:1px solid #222}
       .meisai-head{display:flex;justify-content:space-between;gap:16px;margin-top:12px;align-items:flex-start}
-      .meisai-customer{font-size:16px;font-weight:700;border:1px solid #222;padding:8px 14px;min-width:240px}
+      .meisai-customer{font-size:16px;font-weight:700;border:1px solid #222;padding:8px 14px;min-width:0;max-width:62%}
       .meisai-customer span{font-weight:400;font-size:12px}
       .meisai-shime{margin-top:10px;font-size:13px}
       .meisai-shime strong{border:1px solid #222;padding:3px 10px;margin:0 6px}
@@ -3103,16 +3104,17 @@ function meisaiPrintCss(){
       .meisai-amt-table td:first-child{text-align:left;width:42%}
       .meisai-amt-table td:last-child{text-align:right;width:58%}
       .meisai-amt-total{font-weight:700}
-      .meisai-deliv-label{margin-top:8mm;font-size:12px;text-align:center;border:1px solid #222;padding:4px 0}
-      .meisai-table-wrap{overflow:visible;margin-top:0}
-      .meisai-table-wrap table{border-collapse:collapse;width:100%;table-layout:fixed}
+      .meisai-deliv-label{margin-top:6mm;font-size:12px;text-align:center;border:1px solid #222;padding:4px 0}
+      .meisai-table-wrap{overflow:visible;margin-top:0;width:100%}
+      .meisai-table-wrap table{border-collapse:collapse;width:100%;max-width:100%;table-layout:fixed}
       .meisai-table-wrap thead tr{height:8mm}
       .meisai-table-wrap tbody tr{height:5.8mm}
-      .meisai-table-wrap th,.meisai-table-wrap td{border:1px solid #222;padding:0 3px;font-size:10px;line-height:1.1;vertical-align:middle;white-space:nowrap;overflow:hidden}
-      .meisai-col-name{width:18%}
-      .meisai-col-price{width:8%}
-      .meisai-col-qty{width:6%}
-      .meisai-col-amt{width:9%}`;
+      .meisai-table-wrap th,.meisai-table-wrap td{border:1px solid #222;padding:0 2px;font-size:9.5px;line-height:1.1;vertical-align:middle;white-space:nowrap;overflow:hidden}
+      .meisai-col-name{width:15%}
+      .meisai-col-price{width:7%}
+      .meisai-col-day{width:4.2%}
+      .meisai-col-qty{width:5.5%}
+      .meisai-col-amt{width:8%}`;
 }
 function openMeisaiPrintWindow(bodyHtml){
   const w=window.open("","meisaiPrint");
