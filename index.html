@@ -447,6 +447,7 @@ const TABS=["伝票発行","発行履歴","📊 売上統計","📂 データ","
 const DAY_NAMES=["日","月","火","水","木","金","土"];
 /** 更新情報: 機能更新と機能的なバグ修正のみ（文言調整・Tipsは載せない）。新しいものを先頭へ。 */
 const APP_UPDATES=[
+  {date:"2026-09-23",kind:"改善",title:"品目マスタの重複お知らせ",items:["伝票の自由入力で、マスタにある品名・コードを入れると黄色でお知らせ","商品追加・編集時に、同じコード／同じ品名が既にあると追加できない"]},
   {date:"2026-09-23",kind:"改善",title:"発行履歴の削除をAD・EYのみに制限",items:["一般ユーザーは履歴の削除ボタンを非表示","誤削除による伝票番号の欠番を防ぐ（通常は「没」を使用）"]},
   {date:"2026-09-23",kind:"改善",title:"欠番お知らせ（管理者向け発行者表示）",items:["AD・EYログイン時、欠番の直前・直後の伝票の発行者（略称ID）を表示","欠番そのものは削除済みのため、前後の発行者から状況を確認"]},
   {date:"2026-09-23",kind:"改善",title:"発行履歴の保存期間を6か月に",items:["古い履歴の自動削除を、発行日から3か月超→6か月超に延長"]},
@@ -1497,7 +1498,19 @@ function renderIssueTab(){
   if(showCustomPanel&&iss.customItems&&iss.customItems.length){
     const escAttr=v=>String(v??"").replace(/&/g,"&amp;").replace(/"/g,"&quot;").replace(/</g,"&lt;");
     itemsHtml+=`<div style="margin-bottom:8px;padding:8px;background:#f0f7ff;border-radius:8px;border:1px solid #c8e0ff"><div style="font-size:12px;color:#1565c0;margin-bottom:6px">📝 自由入力行</div>`;
-    itemsHtml+=iss.customItems.map((item,i)=>`<div style="display:grid;grid-template-columns:2fr 1fr 1fr auto;gap:8px;margin-bottom:6px"><input placeholder="品名" value="${escAttr(item.name)}" oninput="setCustomItem(${i},'name',this.value)" style="padding:9px 12px;border:1px solid #c8e0ff;border-radius:8px;font-size:14px"><input type="text" inputmode="decimal" placeholder="数量（－→△）" value="${escAttr(formatQtyDisplay(item.qty))}" oninput="liveQtyTriangle(this);setCustomItem(${i},'qty',this.value,true)" style="padding:9px 12px;border:1px solid #c8e0ff;border-radius:8px;font-size:14px;text-align:center" title="マイナスは△表示"><input type="number" placeholder="単価" value="${escAttr(item.price)}" oninput="setCustomItem(${i},'price',this.value,true)" style="padding:9px 12px;border:1px solid #c8e0ff;border-radius:8px;font-size:14px;text-align:right"><button type="button" onclick="removeCustomItem(${i})" style="background:#fee;border:1px solid #fcc;border-radius:6px;cursor:pointer;padding:0 10px;color:#c62828">✕</button></div>`).join("");
+    itemsHtml+=iss.customItems.map((item,i)=>{
+      const masterHit=findProductInMaster(item.name);
+      const hint=masterHit
+        ?`<div id="custom-master-hint-${i}" class="custom-master-hint" style="grid-column:1/-1;margin:-2px 0 8px;padding:6px 10px;background:#fff8e1;border:1px solid #ffe082;border-radius:6px;font-size:12px;color:#5d4037;line-height:1.5">⚠️ 品目マスタにあります：<strong>${escAttr(masterHit.code)}</strong> ${escAttr(masterHit.name)}　（「商品リストから追加」も使えます）</div>`
+        :`<div id="custom-master-hint-${i}" class="custom-master-hint" style="display:none;grid-column:1/-1;margin:-2px 0 8px;padding:6px 10px;background:#fff8e1;border:1px solid #ffe082;border-radius:6px;font-size:12px;color:#5d4037;line-height:1.5"></div>`;
+      return`<div style="display:grid;grid-template-columns:2fr 1fr 1fr auto;gap:8px;margin-bottom:6px;align-items:center">
+        <input placeholder="品名" value="${escAttr(item.name)}" oninput="setCustomItem(${i},'name',this.value)" style="padding:9px 12px;border:1px solid #c8e0ff;border-radius:8px;font-size:14px">
+        <input type="text" inputmode="decimal" placeholder="数量（－→△）" value="${escAttr(formatQtyDisplay(item.qty))}" oninput="liveQtyTriangle(this);setCustomItem(${i},'qty',this.value,true)" style="padding:9px 12px;border:1px solid #c8e0ff;border-radius:8px;font-size:14px;text-align:center" title="マイナスは△表示">
+        <input type="number" placeholder="単価" value="${escAttr(item.price)}" oninput="setCustomItem(${i},'price',this.value,true)" style="padding:9px 12px;border:1px solid #c8e0ff;border-radius:8px;font-size:14px;text-align:right">
+        <button type="button" onclick="removeCustomItem(${i})" style="background:#fee;border:1px solid #fcc;border-radius:6px;cursor:pointer;padding:0 10px;color:#c62828">✕</button>
+        ${hint}
+      </div>`;
+    }).join("");
     itemsHtml+=`</div>`;
   }
   // 商品ピッカー
@@ -1699,6 +1712,28 @@ function qtyKeyDown(e,i){
     else{const btn=document.querySelector(".issue-btn");if(btn)btn.focus();}
   }
 }
+function findProductInMaster(query){
+  const q=String(query||"").trim();
+  if(!q)return null;
+  const products=state.products||[];
+  const byName=products.find(p=>String(p.name||"").trim()===q);
+  if(byName)return byName;
+  const qCode=q.toUpperCase();
+  return products.find(p=>String(p.code||"").trim().toUpperCase()===qCode)||null;
+}
+function updateCustomItemMasterHint(i,name){
+  const el=document.getElementById("custom-master-hint-"+i);
+  if(!el)return;
+  const hit=findProductInMaster(name);
+  if(!hit){
+    el.style.display="none";
+    el.innerHTML="";
+    return;
+  }
+  const esc=s=>String(s??"").replace(/&/g,"&amp;").replace(/</g,"&lt;");
+  el.style.display="block";
+  el.innerHTML=`⚠️ 品目マスタにあります：<strong>${esc(hit.code)}</strong> ${esc(hit.name)}　（「商品リストから追加」も使えます）`;
+}
 function setCustomItem(i,k,v,refreshTotal){
   if(!state.issue.customItems[i])return;
   if(k==="qty"){
@@ -1707,6 +1742,7 @@ function setCustomItem(i,k,v,refreshTotal){
   }else{
     state.issue.customItems[i][k]=v;
   }
+  if(k==="name")updateCustomItemMasterHint(i,v);
   if(refreshTotal)updateIssueTotalsDisplay();
 }
 function updateIssueTotalsDisplay(){
@@ -2727,9 +2763,11 @@ function renderProductTab(){
   }).join("");
   if(state.showAddProduct&&!state.newProduct.code){state.newProduct.code=nextProductCode();}
   const addForm=state.showAddProduct?`<div class="card" style="background:#fffef7;margin-bottom:16px"><div style="display:grid;grid-template-columns:120px 1fr auto;gap:10px;align-items:end">
-    <div><label class="lbl">商品コード（自動）</label><input value="${state.newProduct.code}" oninput="state.newProduct.code=this.value"></div>
-    <div><label class="lbl">品名</label><input placeholder="品名" value="${state.newProduct.name}" oninput="state.newProduct.name=this.value"></div>
-    <button class="btn-primary" onclick="addProduct()">追加</button></div></div>`:"";
+    <div><label class="lbl">商品コード（自動）</label><input value="${state.newProduct.code}" oninput="state.newProduct.code=this.value;updateNewProductDupHint()"></div>
+    <div><label class="lbl">品名</label><input placeholder="品名" value="${state.newProduct.name}" oninput="state.newProduct.name=this.value;updateNewProductDupHint()"></div>
+    <button class="btn-primary" onclick="addProduct()">追加</button></div>
+    <div id="new-product-dup-hint" style="display:none;margin-top:10px;padding:8px 12px;background:#fff5f5;border:1px solid #ef9a9a;border-radius:6px;font-size:13px;color:#b71c1c;line-height:1.5"></div>
+  </div>`:"";
   const sortBtns=`<div style="display:flex;gap:6px">
     <button onclick="state.productSort='code';render()" style="padding:6px 14px;border:1px solid ${state.productSort==='code'?'#1a1a2e':'#ddd'};background:${state.productSort==='code'?'#1a1a2e':'#fff'};color:${state.productSort==='code'?'#e8d5b7':'#333'};border-radius:6px;cursor:pointer;font-size:12px;font-weight:600">品番順</button>
     <button onclick="state.productSort='name';render()" style="padding:6px 14px;border:1px solid ${state.productSort==='name'?'#1a1a2e':'#ddd'};background:${state.productSort==='name'?'#1a1a2e':'#fff'};color:${state.productSort==='name'?'#e8d5b7':'#333'};border-radius:6px;cursor:pointer;font-size:12px;font-weight:600">あいうえお順</button>
@@ -2740,15 +2778,48 @@ function renderProductTab(){
 function saveProduct(oldCode){
   const ep=state.editingProduct;
   if(!ep.code||!ep.name){showToast("コードと品名を入力してください","error");return;}
-  if(ep.code!==oldCode&&state.products.find(p=>p.code===ep.code)){showToast("同じコードが存在します","error");return;}
-  state.products=state.products.map(p=>p.code===oldCode?{code:ep.code,name:ep.name}:p);
-  if(ep.code!==oldCode){state.prices=state.prices.map(p=>p.code===oldCode?{...p,code:ep.code,name:ep.name}:p);}
-  if(window._saveDataEditLog)window._saveDataEditLog("商品",`${oldCode}→${ep.code} ${ep.name} を更新`);
+  const code=String(ep.code).trim();
+  const name=String(ep.name).trim();
+  if(code!==oldCode&&state.products.find(p=>p.code===code)){showToast(`同じコードが既に登録されています（${code}）`,"error");return;}
+  const sameName=state.products.find(p=>p.code!==oldCode&&String(p.name||"").trim()===name);
+  if(sameName){showToast(`同じ品名が既に登録されています（${sameName.code}）`,"error");return;}
+  state.products=state.products.map(p=>p.code===oldCode?{code,name}:p);
+  if(code!==oldCode){state.prices=state.prices.map(p=>p.code===oldCode?{...p,code,name}:p);}
+  if(window._saveDataEditLog)window._saveDataEditLog("商品",`${oldCode}→${code} ${name} を更新`);
   state.editingProduct=null;save("pv_products",state.products);if(window._fsSave)window._fsSave("pv_products",state.products);showToast("更新しました");render();
 }
 function deleteProduct(code){if(!confirm("削除しますか？"))return;const dp=state.products.find(p=>p.code===code);state.products=state.products.filter(p=>p.code!==code);save("pv_products",state.products);if(window._fsSave)window._fsSave("pv_products",state.products);if(window._saveDataEditLog&&dp)window._saveDataEditLog("商品",`${dp.code} ${dp.name} を削除`);showToast("削除しました");render();}
 function nextProductCode(){const codes=state.products.map(p=>p.code).filter(c=>/^W\d+$/.test(c)).map(c=>parseInt(c.replace("W","")));const mx=codes.length?Math.max(...codes):0;return"W"+String(mx+1).padStart(3,"0");}
-function addProduct(){const np=state.newProduct;if(!np.code||!np.name){showToast("コードと品名を入力","error");return;}if(state.products.find(p=>p.code===np.code)){showToast("同じコードが存在します","error");return;}state.products.push({code:np.code,name:np.name});if(window._saveDataEditLog)window._saveDataEditLog("商品",`${np.code} ${np.name} を追加`);state.newProduct={code:"",name:""};state.showAddProduct=false;save("pv_products",state.products);if(window._fsSave)window._fsSave("pv_products",state.products);showToast("追加しました");render();}
+function updateNewProductDupHint(){
+  const el=document.getElementById("new-product-dup-hint");
+  if(!el)return;
+  const np=state.newProduct||{};
+  const code=String(np.code||"").trim();
+  const name=String(np.name||"").trim();
+  const msgs=[];
+  if(code&&state.products.find(p=>p.code===code))msgs.push(`同じコード「${code}」が既に登録されています`);
+  if(name){
+    const same=state.products.find(p=>String(p.name||"").trim()===name);
+    if(same)msgs.push(`同じ品名が既に登録されています（${same.code}）`);
+  }
+  if(!msgs.length){el.style.display="none";el.textContent="";return;}
+  el.style.display="block";
+  el.textContent="⚠️ "+msgs.join(" ／ ");
+}
+function addProduct(){
+  const np=state.newProduct;
+  if(!np.code||!np.name){showToast("コードと品名を入力","error");return;}
+  const code=String(np.code).trim();
+  const name=String(np.name).trim();
+  if(state.products.find(p=>p.code===code)){showToast(`同じコードが既に登録されています（${code}）`,"error");updateNewProductDupHint();return;}
+  const sameName=state.products.find(p=>String(p.name||"").trim()===name);
+  if(sameName){showToast(`同じ品名が既に登録されています（${sameName.code}）`,"error");updateNewProductDupHint();return;}
+  state.products.push({code,name});
+  if(window._saveDataEditLog)window._saveDataEditLog("商品",`${code} ${name} を追加`);
+  state.newProduct={code:"",name:""};state.showAddProduct=false;
+  save("pv_products",state.products);if(window._fsSave)window._fsSave("pv_products",state.products);
+  showToast("追加しました");render();
+}
 
 // --- Price Tab ---
 function renderPriceTab(){
@@ -3824,6 +3895,7 @@ function renderGuideTab(){
     <div class="guide-sub">イレギュラーな品目</div>
     ${step(1,"「📝 自由入力で追加」で品名・数量・単価を直接入力できます。")}
     ${step(2,"「📋 商品リストから追加」で商品管理の商品を選んで追加できます。")}
+    <div class="guide-note">自由入力で品目マスタにある品名・コードを入れると、黄色のお知らせが出ます。</div>
     <div class="guide-sub">リストにない客先</div>
     ${step(1,"客先のドロップダウン最下部「＋ リスト外の客先を入力」を選び、名前を手入力します。")}
     <div class="guide-note">数量別単価は枚数で単価が切り替わります。都度単価は発行時に単価入力。寸法単価は縦×横（cm）から長辺m×円/mで自動計算します。</div>
