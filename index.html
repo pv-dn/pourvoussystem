@@ -447,6 +447,7 @@ const TABS=["伝票発行","発行履歴","📊 売上統計","📂 データ","
 const DAY_NAMES=["日","月","火","水","木","金","土"];
 /** 更新情報: 機能更新と機能的なバグ修正のみ（文言調整・Tipsは載せない）。新しいものを先頭へ。 */
 const APP_UPDATES=[
+  {date:"2026-09-23",kind:"機能",title:"伝票番号の欠番お知らせ",items:["客先ごとの伝票番号が飛んでいると、発行履歴に警告を表示","伝票発行画面にも件数サマリーを表示し、履歴へ案内","没伝票の番号は欠番にしない（削除などで抜けた番号を検出）"]},
   {date:"2026-09-11",kind:"改善",title:"客先詳細の単価設定表示",items:["品目ごとの現在の単価設定（固定／数量別／都度／寸法）をラベル表示","「変更」から設定方法を切り替えられる"]},
   {date:"2026-09-09",kind:"機能",title:"同一納品日ロック・訂正再発行",items:["同じ客先・同じ納品日の新規打ち直しはできない","警告から訂正再発行へ進める（発行履歴からも可）","訂正すると履歴に訂正日時・訂正者・回数が残る"]},
   {date:"2026-09-09",kind:"機能",title:"請求明細書の客先切替",items:["確認画面の上部で客先を選べる（全客先／個別）","「次へ」「前へ」で次の客先へ移動（同一客先の複数枚はまとめて送る）","左の一覧タップでも切替可能"]},
@@ -992,6 +993,118 @@ function nextInvoiceNo(custName){
   const mx=Math.max(fromCounter,...fromHistory,0);
   return`${prefix}-P${String(mx+1).padStart(3,"0")}`;
 }
+function parseInvoiceSeq(invoiceNo){
+  const m=String(invoiceNo||"").match(/^(.+)-P(\d+)$/i);
+  if(!m)return null;
+  return{prefix:m[1],num:parseInt(m[2],10)};
+}
+function formatInvoiceNo(prefix,num){
+  return`${prefix}-P${String(num).padStart(3,"0")}`;
+}
+function customerNameByPrefix(prefix){
+  if(prefix==="999")return"リスト外客先";
+  const c=(state.customers||[]).find(x=>x.id===prefix);
+  return c?c.name:prefix;
+}
+/** 客先（プレフィックス）ごとの伝票番号欠番を検出。没は番号使用済み扱い。発行なしは除外。 */
+function findInvoiceNoGaps(){
+  const byPrefix={};
+  (state.history||[]).forEach(h=>{
+    if(isIssueNone(h))return;
+    const p=parseInvoiceSeq(h.invoiceNo);
+    if(!p||!p.num)return;
+    if(!byPrefix[p.prefix])byPrefix[p.prefix]={nums:new Set(),customer:h.customer||""};
+    byPrefix[p.prefix].nums.add(p.num);
+    if(h.customer)byPrefix[p.prefix].customer=h.customer;
+  });
+  Object.keys(state.invoiceCounters||{}).forEach(prefix=>{
+    const c=state.invoiceCounters[prefix]||0;
+    if(c<=0)return;
+    if(!byPrefix[prefix])byPrefix[prefix]={nums:new Set(),customer:"",counterMax:c};
+    else byPrefix[prefix].counterMax=c;
+  });
+  const gaps=[];
+  Object.keys(byPrefix).forEach(prefix=>{
+    const info=byPrefix[prefix];
+    const nums=[...info.nums].sort((a,b)=>a-b);
+    if(!nums.length)return;
+    const missing=[];
+    for(let i=0;i<nums.length-1;i++){
+      for(let n=nums[i]+1;n<nums[i+1];n++)missing.push(n);
+    }
+    const histMax=nums[nums.length-1];
+    const ctr=info.counterMax||0;
+    if(ctr>histMax){
+      for(let n=histMax+1;n<=ctr;n++)missing.push(n);
+    }
+    if(!missing.length)return;
+    gaps.push({
+      prefix,
+      customer:info.customer||customerNameByPrefix(prefix),
+      missing,
+      labels:missing.map(n=>formatInvoiceNo(prefix,n)),
+      from:formatInvoiceNo(prefix,nums[0]),
+      to:formatInvoiceNo(prefix,histMax),
+    });
+  });
+  gaps.sort((a,b)=>(a.customer||"").localeCompare(b.customer||"","ja"));
+  return gaps;
+}
+function invoiceGapNoticeHtml(opts){
+  opts=opts||{};
+  const gaps=findInvoiceNoGaps();
+  if(!gaps.length)return"";
+  const totalMissing=gaps.reduce((s,g)=>s+g.missing.length,0);
+  const compact=!!opts.compact;
+  if(compact){
+    return`<div style="margin-bottom:12px;padding:10px 14px;background:#fff5f5;border:1px solid #ef9a9a;border-radius:8px;font-size:13px;color:#b71c1c;line-height:1.6;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+      <div style="flex:1;min-width:200px">⚠️ 伝票番号の欠番が <strong>${totalMissing}件</strong>（${gaps.length}客先）あります</div>
+      <button type="button" onclick="setTab(1)" style="background:#fff;border:1px solid #e57373;border-radius:6px;padding:6px 12px;cursor:pointer;font-size:12px;color:#b71c1c;font-weight:600">発行履歴で確認</button>
+    </div>`;
+  }
+  const rows=gaps.map(g=>{
+    const show=g.labels.slice(0,12);
+    const more=g.labels.length>12?` ほか${g.labels.length-12}件`:"";
+    const custEsc=String(g.customer||"").replace(/&/g,"&amp;").replace(/</g,"&lt;");
+    return`<div style="margin-top:8px;padding:8px 10px;background:#fff;border:1px solid #ffcdd2;border-radius:6px">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">
+        <div style="font-weight:700;color:#1a1a2e">${custEsc} <span style="font-weight:500;color:#888;font-size:12px">（${g.prefix}）</span></div>
+        <button type="button" onclick="focusInvoiceGapByPrefix('${g.prefix}')" style="background:#fff5f5;border:1px solid #ef9a9a;border-radius:6px;padding:3px 10px;cursor:pointer;font-size:11px;color:#b71c1c;font-weight:600">履歴を開く</button>
+      </div>
+      <div style="font-size:12px;color:#666;margin-top:4px">範囲 ${g.from} 〜 ${g.to}</div>
+      <div style="font-size:13px;color:#b71c1c;margin-top:4px;word-break:break-all">欠番: ${show.join("、")}${more}</div>
+    </div>`;
+  }).join("");
+  return`<div class="card" style="background:#fff5f5;border:1px solid #ef9a9a;margin-bottom:16px;padding:14px 16px">
+    <div style="font-size:15px;font-weight:700;color:#b71c1c;margin-bottom:4px">⚠️ 伝票番号の欠番があります</div>
+    <div style="font-size:12px;color:#7f1d1d;line-height:1.6;margin-bottom:4px">客先ごとの連番で抜けている番号です（削除などで飛ぶことがあります）。没にした伝票の番号は欠番扱いしません。</div>
+    <div style="font-size:12px;color:#888">${gaps.length}客先・欠番合計 ${totalMissing}件</div>
+    ${rows}
+  </div>`;
+}
+function focusInvoiceGapByPrefix(prefix){
+  const customer=customerNameByPrefix(prefix);
+  // 履歴上の実客先名を優先
+  const hit=(state.history||[]).find(h=>!isIssueNone(h)&&parseInvoiceSeq(h.invoiceNo)?.prefix===prefix);
+  const name=hit?.customer||customer;
+  state.tab=1;
+  state.editingHistory=null;
+  state.historyGroupMode="customer";
+  state.histSearch=name==="リスト外客先"?"":name;
+  if(!state.openFolders)state.openFolders={};
+  if(name&&name!=="リスト外客先")state.openFolders[name]=true;
+  render();
+}
+function focusInvoiceGapCustomer(customer){
+  if(!customer)return;
+  state.tab=1;
+  state.editingHistory=null;
+  state.historyGroupMode="customer";
+  state.histSearch=customer;
+  if(!state.openFolders)state.openFolders={};
+  state.openFolders[customer]=true;
+  render();
+}
 function getSubtotal(){const items=activeItems();return items.reduce((s,i)=>s+qtyAmount(i.qty,itemUnitPrice(i)),0);}
 function activeItems(){
   const listItems=state.issue.items.filter(i=>{
@@ -1343,7 +1456,8 @@ function renderIssueTab(){
     <button type="button" onclick="cancelHistCorrect()" style="background:#fff;border:1px solid #e0c080;border-radius:6px;padding:6px 12px;cursor:pointer;font-size:12px;color:#854f0b;font-weight:600">訂正をやめる</button>
   </div>`:"";
   const issueBtnLabel=correctingHist?"訂正して再発行する":"納品書を発行する";
-  return`<div style="position:sticky;top:0;z-index:100;background:#f8f7f4;padding:16px 0 8px">
+  const gapBanner=invoiceGapNoticeHtml({compact:true});
+  return`${gapBanner}<div style="position:sticky;top:0;z-index:100;background:#f8f7f4;padding:16px 0 8px">
   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;gap:12px;flex-wrap:wrap">
     <h2 style="font-size:20px;font-weight:600;color:#1a1a2e;margin:0">納品書発行</h2>
     <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:flex-end">
@@ -1842,7 +1956,8 @@ function renderHistoryTab(){
 
   const emptyHtml=`<div style="text-align:center;color:#aaa;padding:40px">履歴がありません</div>`;
 
-  return`<h2 style="font-size:20px;font-weight:600;margin-bottom:16px;color:#1a1a2e">発行履歴
+  return`${invoiceGapNoticeHtml()}
+  <h2 style="font-size:20px;font-weight:600;margin-bottom:16px;color:#1a1a2e">発行履歴
     <button onclick="toggleInvoiceLog()" id="invoice-log-btn" style="margin-left:12px;background:#f0ede8;border:1px solid #ddd;border-radius:6px;padding:4px 12px;cursor:pointer;font-size:12px;color:#666;font-weight:400">📋 発行ログを見る</button>
   </h2>
   <div id="invoice-log-section" style="display:none;margin-bottom:20px"></div>
@@ -3709,7 +3824,10 @@ function renderGuideTab(){
     ${step(2,"請求タブで該当月を選んで「確認する」から印刷、または「上で選んだ月をExcel」で再出力できます。")}
     <div class="guide-sub">履歴を削除したい</div>
     ${step(1,"発行履歴の「削除」。確認後に消えます。元に戻せません。")}
-    <div class="guide-warn">削除前に明細書への書き出しを済ませてください。</div>
+    <div class="guide-warn">削除前に明細書への書き出しを済ませてください。削除すると伝票番号が欠番になり、お知らせが出ます。</div>
+    <div class="guide-sub">伝票番号が飛んでいる</div>
+    ${step(1,"発行履歴上部の赤いお知らせで、客先ごとの欠番一覧を確認できます。")}
+    ${step(2,"「履歴を開く」で該当客先の履歴を表示します。没にした番号は欠番になりません。")}
   `)}
 
   ${guideAcc("sync","☁️ 複数PCでのデータ共有・バックアップ",`
@@ -4056,6 +4174,8 @@ window.openPendingIssue=openPendingIssue;
 window.deletePendingIssue=deletePendingIssue;
 window.startHistCorrect=startHistCorrect;
 window.cancelHistCorrect=cancelHistCorrect;
+window.focusInvoiceGapByPrefix=focusInvoiceGapByPrefix;
+window.focusInvoiceGapCustomer=focusInvoiceGapCustomer;
 
 function selectCustomerFromSidebar(customerName,dateStr){
   state.correctingHistId=null;
