@@ -447,6 +447,7 @@ const TABS=["伝票発行","発行履歴","📊 売上統計","📂 データ","
 const DAY_NAMES=["日","月","火","水","木","金","土"];
 /** 更新情報: 機能更新と機能的なバグ修正のみ（文言調整・Tipsは載せない）。新しいものを先頭へ。 */
 const APP_UPDATES=[
+  {date:"2026-09-23",kind:"改善",title:"発行履歴の保存期間を6か月に",items:["古い履歴の自動削除を、発行日から3か月超→6か月超に延長"]},
   {date:"2026-09-23",kind:"機能",title:"伝票番号の欠番お知らせ",items:["客先ごとの伝票番号が飛んでいると、発行履歴に警告を表示","伝票発行画面にも件数サマリーを表示し、履歴へ案内","没伝票の番号は欠番にしない（削除などで抜けた番号を検出）"]},
   {date:"2026-09-11",kind:"改善",title:"客先詳細の単価設定表示",items:["品目ごとの現在の単価設定（固定／数量別／都度／寸法）をラベル表示","「変更」から設定方法を切り替えられる"]},
   {date:"2026-09-09",kind:"機能",title:"同一納品日ロック・訂正再発行",items:["同じ客先・同じ納品日の新規打ち直しはできない","警告から訂正再発行へ進める（発行履歴からも可）","訂正すると履歴に訂正日時・訂正者・回数が残る"]},
@@ -1783,10 +1784,10 @@ async function issueInvoice(){
         save("pv_invoice_counters",state.invoiceCounters);
       }
     }
-    const threeMonthsAgo=new Date();threeMonthsAgo.setMonth(threeMonthsAgo.getMonth()-3);
-    const gone=state.history.filter(h=>new Date(h.issueDate)<threeMonthsAgo).map(h=>h.id);
+    const sixMonthsAgo=new Date();sixMonthsAgo.setMonth(sixMonthsAgo.getMonth()-6);
+    const gone=state.history.filter(h=>new Date(h.issueDate)<sixMonthsAgo).map(h=>h.id);
     if(gone.length){
-      state.history=state.history.filter(h=>new Date(h.issueDate)>=threeMonthsAgo);
+      state.history=state.history.filter(h=>new Date(h.issueDate)>=sixMonthsAgo);
       await saveHistoryMerged(state.history,{deletedIds:gone});
     }
     try{
@@ -3773,6 +3774,8 @@ function renderGuideTab(){
     <div class="guide-sub">没にする</div>
     ${step(1,"対象伝票の「没」を押すと、赤字・取り消し線表示になります。「復活」で戻せます。")}
     <div class="guide-note">没伝票は削除されず残ります。集計からも除外されます。</div>
+    <div class="guide-sub">保存期間</div>
+    ${step(1,"発行日から6か月を過ぎた履歴は、新しい伝票発行時に自動で削除されます。")}
     <div class="guide-sub">発行ログ</div>
     ${step(1,"「📋 発行ログを見る」で、伝票番号・客先・発行者・日時を確認できます。")}
   `)}
