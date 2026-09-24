@@ -440,6 +440,7 @@ td{padding:9px 8px;border-bottom:.5px solid #f0ede8;font-size:13px;overflow:hidd
 </div>
 <div id="print-modal" class="overlay hidden"></div>
 <div id="meisai-modal" class="overlay meisai-overlay hidden"></div>
+<div id="same-day-lock-modal" class="overlay hidden"></div>
 
 <script>
 const COMPANY={name:"株式会社プゥル・ヴー",division:"ホワイト事業部",zip:"〒252-0025",address:"神奈川県大和市代官2-12-2",tel:"TEL046-267-9228",fax:"FAX046-201-2116"};
@@ -447,6 +448,7 @@ const TABS=["伝票発行","発行履歴","📊 売上統計","📂 データ","
 const DAY_NAMES=["日","月","火","水","木","金","土"];
 /** 更新情報: 機能更新と機能的なバグ修正のみ（文言調整・Tipsは載せない）。新しいものを先頭へ。 */
 const APP_UPDATES=[
+  {date:"2026-09-24",kind:"機能",title:"同一納品日の追加発行（例外）",items:["同じ客先・同じ納品日でも、警告から「別伝票として追加発行」を選べる","通常は訂正再発行。追加発行は新しい伝票番号で2枚目になる","例外は毎回確認が必要（誤って二重打ちしない）"]},
   {date:"2026-09-23",kind:"改善",title:"品目マスタの重複お知らせ",items:["伝票の自由入力で、マスタにある品名・コードを入れると黄色でお知らせ","商品追加・編集時に、同じコード／同じ品名が既にあると追加できない"]},
   {date:"2026-09-23",kind:"改善",title:"欠番お知らせ（管理者向け発行者表示）",items:["AD・EYログイン時、欠番の直前・直後の伝票の発行者（略称ID）を表示","欠番そのものは削除済みのため、前後の発行者から状況を確認"]},
   {date:"2026-09-23",kind:"改善",title:"発行履歴の保存期間を6か月に",items:["古い履歴の自動削除を、発行日から3か月超→6か月超に延長"]},
@@ -526,7 +528,7 @@ let state={
   pendingIssues:load("pv_pending_issues",[]),
   dataEditLogs:load("pv_data_edit_logs",[]),
   minG:load("pv_min",INIT_MIN),
-  issue:{customer:"",freeCustomer:false,deliveryDate:"",deliverySite:"",items:[],customItems:[{name:"",qty:"",price:""}],useCustom:false,customPanelOpen:false,memo:"",pendingId:null},
+  issue:{customer:"",freeCustomer:false,deliveryDate:"",deliverySite:"",items:[],customItems:[{name:"",qty:"",price:""}],useCustom:false,customPanelOpen:false,memo:"",pendingId:null,allowSameDayExtra:false},
   correctingHistId:null,
   histSearch:"",
   custSearch:"",
@@ -895,6 +897,48 @@ function findHistByCustomerDelivery(customer,ds){
   if(!customer||!key)return null;
   return(state.history||[]).find(h=>isRealInvoice(h)&&h.customer===customer&&deliveryDateMatchKey(h.deliveryDate)===key)||null;
 }
+function closeSameDayLockModal(){
+  const el=document.getElementById("same-day-lock-modal");
+  if(el){el.classList.add("hidden");el.innerHTML="";}
+}
+function showSameDayLockModal(sameDayHist){
+  const el=document.getElementById("same-day-lock-modal");
+  if(!el)return;
+  const dateLabel=fmtDate(fromInput(state.issue.deliveryDate))||state.issue.deliveryDate;
+  const cust=String(state.issue.customer||"").replace(/</g,"&lt;");
+  const invNo=sameDayHist.invoiceNo?String(sameDayHist.invoiceNo).replace(/</g,"&lt;"):"";
+  const histId=sameDayHist.id;
+  el.innerHTML=`<div style="background:#fff;border-radius:12px;width:min(440px,92vw);padding:24px 26px;box-shadow:0 8px 32px rgba(0,0,0,.25)" onclick="event.stopPropagation()">
+    <div style="font-size:16px;font-weight:700;color:#1a1a2e;margin-bottom:10px">同じ客先・同じ納品日の伝票があります</div>
+    <div style="font-size:13px;color:#444;line-height:1.7;margin-bottom:18px">
+      客先: ${cust}<br>納品日: ${dateLabel}${invNo?`<br>既存の伝票番号: ${invNo}`:""}
+      <div style="margin-top:8px;color:#666">通常は既存伝票を訂正します。別内容で紙を分けたいときだけ追加発行を選んでください。</div>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:8px">
+      <button type="button" onclick="chooseSameDayCorrect(${histId})" style="background:#1a1a2e;color:#fff;border:none;border-radius:8px;padding:12px 16px;cursor:pointer;font-size:14px;font-weight:700">訂正して再発行</button>
+      <button type="button" onclick="chooseSameDayExtra()" style="background:#fff8e1;color:#854f0b;border:1px solid #f0c36d;border-radius:8px;padding:12px 16px;cursor:pointer;font-size:14px;font-weight:700">別伝票として追加発行（例外）</button>
+      <button type="button" onclick="cancelSameDayLock()" style="background:#eee;color:#333;border:none;border-radius:8px;padding:10px 16px;cursor:pointer;font-size:13px">キャンセル</button>
+    </div>
+  </div>`;
+  el.onclick=function(e){if(e.target===el)cancelSameDayLock();};
+  el.classList.remove("hidden");
+}
+function chooseSameDayCorrect(histId){
+  closeSameDayLockModal();
+  state.issue.allowSameDayExtra=false;
+  startHistCorrect(histId);
+}
+function chooseSameDayExtra(){
+  if(!confirm("別の伝票番号で追加発行しますか？\n\n・いま入力中の内容で新しい伝票になります\n・既存の伝票はそのまま残ります\n・同じ客先・同じ納品日の2枚目になります"))return;
+  closeSameDayLockModal();
+  state.issue.allowSameDayExtra=true;
+  issueInvoice();
+}
+function cancelSameDayLock(){
+  closeSameDayLockModal();
+  state.issue.allowSameDayExtra=false;
+  showToast("発行をキャンセルしました。訂正は発行履歴から行えます","error");
+}
 function nowCorrectionStamp(){
   const d=new Date();
   return`${fmtDate(d)} ${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`;
@@ -906,6 +950,7 @@ function parseDimFromItemName(name){
 }
 function cancelHistCorrect(){
   state.correctingHistId=null;
+  state.issue.allowSameDayExtra=false;
   showToast("訂正再発行をやめました");
   render();
 }
@@ -914,6 +959,7 @@ function startHistCorrect(id){
   if(!h||!isRealInvoice(h)){showToast("履歴が見つかりません","error");return;}
   state.editingHistory=null;
   state.correctingHistId=h.id;
+  state.issue.allowSameDayExtra=false;
   state.issue.pendingId=null;
   state.issue.memo=h.memo||"";
   state.issue.deliveryDate=toInput(h.deliveryDate instanceof Date?h.deliveryDate:new Date(h.deliveryDate));
@@ -1828,13 +1874,12 @@ async function issueInvoice(){
     return;
   }
   const sameDayHist=findHistByCustomerDelivery(state.issue.customer,state.issue.deliveryDate);
-  if(sameDayHist&&(!correctingHist||sameDayHist.id!==correctingHist.id)){
-    const dateLabel=fmtDate(fromInput(state.issue.deliveryDate))||state.issue.deliveryDate;
-    const go=confirm(`同じ客先・同じ納品日の伝票が既にあります。\n新しく打ち直しての発行はできません。\n\n客先: ${state.issue.customer}\n納品日: ${dateLabel}${sameDayHist.invoiceNo?`\n（既存の伝票番号: ${sameDayHist.invoiceNo}）`:""}\n\n訂正して再発行しますか？`);
-    if(go)startHistCorrect(sameDayHist.id);
-    else showToast("発行をキャンセルしました。訂正は発行履歴から行えます","error");
+  const allowExtra=!!state.issue.allowSameDayExtra;
+  if(sameDayHist&&!allowExtra&&(!correctingHist||sameDayHist.id!==correctingHist.id)){
+    showSameDayLockModal(sameDayHist);
     return;
   }
+  state.issue.allowSameDayExtra=false;
   const isCorrection=!!correctingHist;
   const sub=getSubtotal();const mg=state.minG[state.issue.customer]||0;const total=applyMinGuarantee(sub,mg);
   const invNoKey=state.issue.freeCustomer?"__FREE__":state.issue.customer;
@@ -3848,7 +3893,7 @@ function renderGuideTab(){
     ${step(3,"<strong>客先を選択</strong>　「伝票発行」タブで客先を選びます。納品日がサイクルから自動で入ります。")}
     ${step(4,"<strong>数量を入力</strong>　品目の数量を入力します。Enterで次の行へ進めます。合計は自動計算されます。")}
     ${step(5,"<strong>納品書を発行・印刷</strong>　「納品書を発行する」→「印刷（B5横）」で印刷します。中央の破線で半分に切り、お客様控えと社内控えに分けます。")}
-    <div class="guide-note">⚠️ 同じ客先・同じ納品日の伝票が既にあると新規発行できません。警告から「訂正して再発行」へ進むか、発行履歴の「訂正再発行」で直します。訂正日時が履歴に残ります。</div>
+    <div class="guide-note">⚠️ 同じ客先・同じ納品日の伝票が既にあると警告が出ます。「訂正して再発行」（同じ番号で直す）／「別伝票として追加発行」（新しい番号の2枚目・例外）／キャンセルから選びます。訂正は発行履歴からもできます。</div>
     ${step(6,"<strong>請求明細書を確認・印刷</strong>　「請求」タブで年月を選び「👁 確認する」。チェックして「選択して印刷」、または「全件印刷」。")}
     <div class="guide-note">明細書には同じ請求月の反映済みも含めて月全体が載ります（正式な請求明細のため）。「反映済み」になるのは未反映分だけです。誤って反映した場合は「↩ 反映を取り消す」で戻せます。</div>
     <div class="guide-warn">使い終わったら右上の「ログアウト」を必ず押してください。</div>
