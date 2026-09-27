@@ -127,6 +127,7 @@ const FS_KEYS = {
   pv_unissued_none: "unissuedNone",
   pv_pending_issues: "pendingIssues",
   pv_data_edit_logs: "dataEditLogs",
+  pv_dismissed_invoice_gaps: "dismissedInvoiceGaps",
   pv_adminpass: "adminpass",
   pv_githubPAT: "githubPAT"
 };
@@ -184,7 +185,7 @@ window._fsLoad = async function(k) {
 };
 
 // リアルタイム同期（ログイン後に開始）
-const watchKeys = ["customers","products","prices","history","invoiceCounters","closingDays","minG","cycles","skipHolidays","unissuedNone","pendingIssues","dataEditLogs"];
+const watchKeys = ["customers","products","prices","history","invoiceCounters","closingDays","minG","cycles","skipHolidays","unissuedNone","pendingIssues","dataEditLogs","dismissedInvoiceGaps"];
 window._startRealtimeSync = function() {
 if(window._realtimeSyncStarted)return;
 window._realtimeSyncStarted=true;
@@ -216,6 +217,7 @@ watchKeys.forEach(fsKey => {
           if (!window._savingPending) st.pendingIssues = Array.isArray(val) ? val : [];
         }
         else if (localKey === "pv_data_edit_logs") st.dataEditLogs = Array.isArray(val)?val:[];
+        else if (localKey === "pv_dismissed_invoice_gaps") st.dismissedInvoiceGaps = Array.isArray(val)?val:[];
       }
       if (st && !st.showPrint && !st.editingHistory && !st.customerDetail && typeof render === "function") {
         render();
@@ -448,6 +450,7 @@ const TABS=["伝票発行","発行履歴","📊 売上統計","📂 データ","
 const DAY_NAMES=["日","月","火","水","木","金","土"];
 /** 更新情報: 機能更新と機能的なバグ修正のみ（文言調整・Tipsは載せない）。新しいものを先頭へ。 */
 const APP_UPDATES=[
+  {date:"2026-09-28",kind:"機能",title:"欠番お知らせを消せる（AD・EY）",items:["AD・EYログイン時、確認済みの欠番をお知らせから消せる","消した欠番の一覧から復活できる","番号自体は戻らない（表示のオン／オフだけ）。消した内容はクラウドで共有"]},
   {date:"2026-09-24",kind:"機能",title:"同一納品日の追加発行（例外）",items:["同じ客先・同じ納品日でも、警告から「別伝票として追加発行」を選べる","通常は訂正再発行。追加発行は新しい伝票番号で2枚目になる","例外は毎回確認が必要（誤って二重打ちしない）"]},
   {date:"2026-09-23",kind:"改善",title:"品目マスタの重複お知らせ",items:["伝票の自由入力で、マスタにある品名・コードを入れると黄色でお知らせ","商品追加・編集時に、同じコード／同じ品名が既にあると追加できない"]},
   {date:"2026-09-23",kind:"改善",title:"欠番お知らせ（管理者向け発行者表示）",items:["AD・EYログイン時、欠番の直前・直後の伝票の発行者（略称ID）を表示","欠番そのものは削除済みのため、前後の発行者から状況を確認"]},
@@ -527,6 +530,7 @@ let state={
   unissuedNone:load("pv_unissued_none",{}),
   pendingIssues:load("pv_pending_issues",[]),
   dataEditLogs:load("pv_data_edit_logs",[]),
+  dismissedInvoiceGaps:load("pv_dismissed_invoice_gaps",[]),
   minG:load("pv_min",INIT_MIN),
   issue:{customer:"",freeCustomer:false,deliveryDate:"",deliverySite:"",items:[],customItems:[{name:"",qty:"",price:""}],useCustom:false,customPanelOpen:false,memo:"",pendingId:null,allowSameDayExtra:false},
   correctingHistId:null,
@@ -548,6 +552,7 @@ let state={
   newPrice:{customer:"",code:"",name:"",price:""},
   openFolders:{},
   historyGroupMode:"customer", // "customer" or "date"
+  showDismissedGaps:false,
   productSort:"code",  // "code" or "name"
   priceSort:"code",    // "code" or "name"
   billingMonth:(()=>{const d=new Date();return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0");})(),
@@ -1079,8 +1084,9 @@ function groupMissingRanges(missing){
   ranges.push({from:start,to:end});
   return ranges;
 }
-/** 客先（プレフィックス）ごとの伝票番号欠番を検出。没は番号使用済み扱い。発行なしは除外。 */
+/** 客先（プレフィックス）ごとの伝票番号欠番を検出。没は番号使用済み扱い。発行なしは除外。確認済み欠番は除外。 */
 function findInvoiceNoGaps(){
+  const dismissed=new Set((state.dismissedInvoiceGaps||[]).map(String));
   const byPrefix={};
   (state.history||[]).forEach(h=>{
     if(isIssueNone(h))return;
@@ -1102,15 +1108,16 @@ function findInvoiceNoGaps(){
     const info=byPrefix[prefix];
     const nums=[...info.nums].sort((a,b)=>a-b);
     if(!nums.length)return;
-    const missing=[];
+    const missingRaw=[];
     for(let i=0;i<nums.length-1;i++){
-      for(let n=nums[i]+1;n<nums[i+1];n++)missing.push(n);
+      for(let n=nums[i]+1;n<nums[i+1];n++)missingRaw.push(n);
     }
     const histMax=nums[nums.length-1];
     const ctr=info.counterMax||0;
     if(ctr>histMax){
-      for(let n=histMax+1;n<=ctr;n++)missing.push(n);
+      for(let n=histMax+1;n<=ctr;n++)missingRaw.push(n);
     }
+    const missing=missingRaw.filter(n=>!dismissed.has(formatInvoiceNo(prefix,n)));
     if(!missing.length)return;
     const ranges=groupMissingRanges(missing).map(r=>{
       const prev=info.byNum[r.from-1]||null;
@@ -1140,6 +1147,54 @@ function findInvoiceNoGaps(){
   gaps.sort((a,b)=>(a.customer||"").localeCompare(b.customer||"","ja"));
   return gaps;
 }
+function dismissInvoiceGapRange(prefix,from,to){
+  if(!isAdminUser()){showToast("欠番お知らせを消せるのはAD・EYのみです","error");return;}
+  prefix=String(prefix||"");
+  from=parseInt(from,10);to=parseInt(to,10);
+  if(!prefix||!(from>0)||!(to>=from)){showToast("対象の欠番が不正です","error");return;}
+  const label=from===to?formatInvoiceNo(prefix,from):`${formatInvoiceNo(prefix,from)}〜${formatInvoiceNo(prefix,to)}`;
+  if(!confirm(`欠番 ${label} をお知らせから消しますか？\n\n・番号そのものが戻るわけではありません\n・確認済みとして非表示にします\n・他のPCのAD・EYにも共有されます`))return;
+  const set=new Set((state.dismissedInvoiceGaps||[]).map(String));
+  for(let n=from;n<=to;n++)set.add(formatInvoiceNo(prefix,n));
+  state.dismissedInvoiceGaps=[...set];
+  save("pv_dismissed_invoice_gaps",state.dismissedInvoiceGaps);
+  showToast(`欠番 ${label} をお知らせから消しました`);
+  render();
+}
+function restoreInvoiceGap(invoiceNo){
+  if(!isAdminUser()){showToast("欠番お知らせの復活はAD・EYのみです","error");return;}
+  const no=String(invoiceNo||"");
+  if(!no)return;
+  if(!confirm(`欠番 ${no} をお知らせに戻しますか？`))return;
+  state.dismissedInvoiceGaps=(state.dismissedInvoiceGaps||[]).filter(x=>String(x)!==no);
+  save("pv_dismissed_invoice_gaps",state.dismissedInvoiceGaps);
+  showToast(`欠番 ${no} をお知らせに戻しました`);
+  render();
+}
+function dismissedInvoiceGapsHtml(){
+  if(!isAdminUser())return"";
+  const list=[...(state.dismissedInvoiceGaps||[])].map(String).filter(Boolean);
+  if(!list.length)return"";
+  list.sort((a,b)=>a.localeCompare(b,"ja"));
+  const open=!!state.showDismissedGaps;
+  const rows=list.map(no=>{
+    const p=parseInvoiceSeq(no);
+    const cust=p?customerNameByPrefix(p.prefix):"";
+    const custEsc=String(cust||"").replace(/&/g,"&amp;").replace(/</g,"&lt;");
+    const noEsc=String(no).replace(/\\/g,"\\\\").replace(/'/g,"\\'");
+    return`<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;padding:6px 0;border-bottom:1px solid #eee">
+      <div style="font-size:13px;color:#333"><span style="font-weight:700">${String(no).replace(/</g,"&lt;")}</span>${custEsc?` <span style="color:#888;font-size:12px">${custEsc}</span>`:""}</div>
+      <button type="button" onclick="restoreInvoiceGap('${noEsc}')" style="background:#e8f5e9;border:1px solid #a5d6a7;border-radius:5px;padding:2px 10px;cursor:pointer;font-size:11px;color:#2e7d32;font-weight:600">お知らせに戻す</button>
+    </div>`;
+  }).join("");
+  return`<div class="card" style="background:#faf9f6;border:1px solid #e0ddd6;margin-bottom:16px;padding:12px 16px">
+    <div onclick="state.showDismissedGaps=!state.showDismissedGaps;render()" style="display:flex;align-items:center;justify-content:space-between;gap:8px;cursor:pointer;user-select:none">
+      <div style="font-size:14px;font-weight:700;color:#555">お知らせから消した欠番 <span style="font-weight:500;color:#888;font-size:12px">（${list.length}件・AD・EY）</span></div>
+      <span style="color:#aaa;font-size:12px">${open?"▲":"▼"}</span>
+    </div>
+    ${open?`<div style="margin-top:8px;font-size:12px;color:#888;margin-bottom:6px">確認済みとして非表示にしている番号です。「お知らせに戻す」で再び警告に出せます。</div>${rows}`:""}
+  </div>`;
+}
 function invoiceGapNoticeHtml(opts){
   opts=opts||{};
   const gaps=findInvoiceNoGaps();
@@ -1155,6 +1210,7 @@ function invoiceGapNoticeHtml(opts){
   }
   const rows=gaps.map(g=>{
     const custEsc=String(g.customer||"").replace(/&/g,"&amp;").replace(/</g,"&lt;");
+    const prefixEsc=String(g.prefix||"").replace(/\\/g,"\\\\").replace(/'/g,"\\'");
     let detail="";
     if(admin&&g.ranges&&g.ranges.length){
       const showRanges=g.ranges.slice(0,12);
@@ -1165,26 +1221,32 @@ function invoiceGapNoticeHtml(opts){
         if(r.nextNo)neighbors.push(`直後 ${r.nextNo}［${r.nextIssuer||"—"}］`);
         const neigh=neighbors.length?`<div style="font-size:11px;color:#666;margin-top:2px">${neighbors.join(" ／ ")}</div>`:`<div style="font-size:11px;color:#888;margin-top:2px">前後の伝票なし（発行者不明）</div>`;
         return`<div style="margin-top:6px;padding:6px 8px;background:#fffaf0;border-radius:4px;border:1px solid #ffe0b2">
-          <div style="font-size:13px;color:#b71c1c;font-weight:600">${r.label}</div>
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">
+            <div style="font-size:13px;color:#b71c1c;font-weight:600">${r.label}</div>
+            <button type="button" onclick="dismissInvoiceGapRange('${prefixEsc}',${r.from},${r.to})" style="background:#fff;border:1px solid #ef9a9a;border-radius:5px;padding:2px 8px;cursor:pointer;font-size:11px;color:#b71c1c;font-weight:600">お知らせから消す</button>
+          </div>
           ${neigh}
         </div>`;
       }).join("")+moreR;
     }else{
       const show=g.labels.slice(0,12);
       const more=g.labels.length>12?` ほか${g.labels.length-12}件`:"";
-      detail=`<div style="font-size:13px;color:#b71c1c;margin-top:4px;word-break:break-all">欠番: ${show.join("、")}${more}</div>`;
+      const dismissBtn=admin&&g.missing&&g.missing.length
+        ?`<button type="button" onclick="dismissInvoiceGapRange('${prefixEsc}',${g.missing[0]},${g.missing[g.missing.length-1]})" style="background:#fff;border:1px solid #ef9a9a;border-radius:5px;padding:2px 8px;cursor:pointer;font-size:11px;color:#b71c1c;font-weight:600;margin-top:6px">お知らせから消す</button>`
+        :"";
+      detail=`<div style="font-size:13px;color:#b71c1c;margin-top:4px;word-break:break-all">欠番: ${show.join("、")}${more}</div>${dismissBtn}`;
     }
     return`<div style="margin-top:8px;padding:8px 10px;background:#fff;border:1px solid #ffcdd2;border-radius:6px">
       <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">
         <div style="font-weight:700;color:#1a1a2e">${custEsc} <span style="font-weight:500;color:#888;font-size:12px">（${g.prefix}）</span></div>
-        <button type="button" onclick="focusInvoiceGapByPrefix('${g.prefix}')" style="background:#fff5f5;border:1px solid #ef9a9a;border-radius:6px;padding:3px 10px;cursor:pointer;font-size:11px;color:#b71c1c;font-weight:600">履歴を開く</button>
+        <button type="button" onclick="focusInvoiceGapByPrefix('${prefixEsc}')" style="background:#fff5f5;border:1px solid #ef9a9a;border-radius:6px;padding:3px 10px;cursor:pointer;font-size:11px;color:#b71c1c;font-weight:600">履歴を開く</button>
       </div>
       <div style="font-size:12px;color:#666;margin-top:4px">範囲 ${g.from} 〜 ${g.to}</div>
       ${detail}
     </div>`;
   }).join("");
   const adminNote=admin
-    ?`<div style="font-size:12px;color:#7f1d1d;line-height:1.6;margin-bottom:4px">欠番そのものの発行者は履歴に残っていません。AD・EY向けに、<strong>直前・直後の伝票の発行者</strong>（略称ID）を表示しています。</div>`
+    ?`<div style="font-size:12px;color:#7f1d1d;line-height:1.6;margin-bottom:4px">欠番そのものの発行者は履歴に残っていません。AD・EY向けに、<strong>直前・直後の伝票の発行者</strong>（略称ID）を表示しています。確認済みなら「お知らせから消す」で非表示にできます（下の一覧から復活可）。</div>`
     :`<div style="font-size:12px;color:#7f1d1d;line-height:1.6;margin-bottom:4px">客先ごとの連番で抜けている番号です（削除などで飛ぶことがあります）。没にした伝票の番号は欠番扱いしません。</div>`;
   return`<div class="card" style="background:#fff5f5;border:1px solid #ef9a9a;margin-bottom:16px;padding:14px 16px">
     <div style="font-size:15px;font-weight:700;color:#b71c1c;margin-bottom:4px">⚠️ 伝票番号の欠番があります</div>
@@ -2102,7 +2164,7 @@ function renderHistoryTab(){
 
   const emptyHtml=`<div style="text-align:center;color:#aaa;padding:40px">履歴がありません</div>`;
 
-  return`${invoiceGapNoticeHtml()}
+  return`${invoiceGapNoticeHtml()}${dismissedInvoiceGapsHtml()}
   <h2 style="font-size:20px;font-weight:600;margin-bottom:16px;color:#1a1a2e">発行履歴
     <button onclick="toggleInvoiceLog()" id="invoice-log-btn" style="margin-left:12px;background:#f0ede8;border:1px solid #ddd;border-radius:6px;padding:4px 12px;cursor:pointer;font-size:12px;color:#666;font-weight:400">📋 発行ログを見る</button>
   </h2>
@@ -4014,6 +4076,8 @@ function renderGuideTab(){
     <div class="guide-sub">伝票番号が飛んでいる</div>
     ${step(1,"発行履歴上部の赤いお知らせで、客先ごとの欠番一覧を確認できます。")}
     ${step(2,"「履歴を開く」で該当客先の履歴を表示します。没にした番号は欠番になりません。")}
+    ${step(3,"AD・EYは確認済みの欠番を「お知らせから消す」で非表示にできます（番号は戻りません）。")}
+    ${step(4,"消した欠番は発行履歴の「お知らせから消した欠番」一覧から「お知らせに戻す」で復活できます。")}
     <div class="guide-note">AD・EYでログインしているときは、欠番の直前・直後の伝票の発行者も表示されます。欠番そのものの発行者や削除理由は履歴に残らないため、前後の発行者は手がかりになります。</div>
   `)}
 
