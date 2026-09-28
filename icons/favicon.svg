@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <!-- Background -->
+  <rect width="512" height="512" fill="#f5ebe0"/>
+
+  <!-- Oval/helmet shape - outer ellipse -->
+  <ellipse cx="256" cy="195" rx="100" ry="130" fill="none" stroke="#5b5ea6" stroke-width="8"/>
+
+  <!-- Inner vertical lines -->
+  <line x1="256" y1="65" x2="256" y2="325" stroke="#5b5ea6" stroke-width="8"/>
+  <line x1="226" y1="68" x2="226" y2="323" stroke="#5b5ea6" stroke-width="8"/>
+  <line x1="286" y1="68" x2="286" y2="323" stroke="#5b5ea6" stroke-width="8"/>
+
+  <!-- Horizontal arc lines (like the brim) -->
+  <path d="M 156 270 Q 256 310 356 270" fill="none" stroke="#5b5ea6" stroke-width="8"/>
+  <path d="M 156 290 Q 256 330 356 290" fill="none" stroke="#5b5ea6" stroke-width="8"/>
+
+  <!-- Crossing lines at the base -->
+  <path d="M 156 325 Q 256 355 356 325" fill="none" stroke="#5b5ea6" stroke-width="7"/>
+  <line x1="130" y1="330" x2="382" y2="330" stroke="#5b5ea6" stroke-width="7"/>
+
+  <!-- Text: POUR VOUS -->
+  <text x="256" y="405" font-family="Georgia, serif" font-size="52" font-weight="bold" fill="#c8603a" text-anchor="middle" letter-spacing="3">POUR VOUS</text>
+
+  <!-- Text: Make smile & happy -->
+  <text x="256" y="445" font-family="Georgia, serif" font-size="24" fill="#c8603a" text-anchor="middle" letter-spacing="1">Make  smile &amp; happy</text>
+</svg>
