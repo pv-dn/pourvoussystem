@@ -4251,8 +4251,8 @@ function doPrint(){
   const pa=document.getElementById("print-area");
   if(!pa)return;
   const inner=pa.innerHTML;
-  // B5横(257×168)を前提。中央破線で半分に切ったあと、各控えの左右余白が同じになるよう
-  // 各半分ちょうど50%＋左右同じパディング。切れ目は用紙中央の線のみ（幅を取らない）。
+  // ブラウザ余白「なし」＋B5横。中央で半分に切ったあと、各控えの上下左右が約5mmずつになるよう
+  // 各半分(50%)に padding:5mm。切れ目は中央の線のみ。内容は半分の枠いっぱいに広げる。
   const css=''
     +'*{box-sizing:border-box;margin:0;padding:0}'
     +'@page{size:B5 landscape;margin:0}'
@@ -4260,10 +4260,11 @@ function doPrint(){
     +'html,body{margin:0;padding:0;width:257mm;height:168mm;overflow:hidden;background:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact;font-family:"MS Mincho",serif}'
     +'.sheet{position:relative;width:257mm;height:168mm;overflow:hidden;page-break-after:always;page-break-inside:avoid}'
     +'.sheet:last-child{page-break-after:auto}'
-    +'.slot{position:absolute;top:0;bottom:0;width:50%;padding:3mm 4mm;overflow:hidden}'
+    +'.slot{position:absolute;top:0;bottom:0;width:50%;padding:5mm;overflow:hidden;display:flex;align-items:stretch;justify-content:center}'
     +'.slot.left{left:0}'
     +'.slot.right{left:50%}'
-    +'.slot-inner{width:100%;height:100%}'
+    +'.slot-inner{width:100%;height:100%;min-width:0;display:flex;flex-direction:column}'
+    +'.slot-inner>div{width:100%!important;height:100%!important;min-width:0!important;padding:0!important;flex:1;display:flex;flex-direction:column}'
     +'.cut{position:absolute;left:50%;top:0;bottom:0;width:0;border-left:1px dashed #999;transform:translateX(-0.5px);z-index:2;pointer-events:none}'
     +'table{table-layout:fixed;width:100%;border-collapse:collapse}'
     +'tbody tr{height:9mm}'
