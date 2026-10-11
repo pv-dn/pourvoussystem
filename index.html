@@ -4251,10 +4251,10 @@ function doPrint(){
   const pa=document.getElementById("print-area");
   if(!pa)return;
   const inner=pa.innerHTML;
-  // 余白「なし」で、ブラウザ「最小」相当の余白を自前で確保。
-  // 中央で半分に切ったあと、各控えの左右余白が同じになるよう半分幅基準で inset。
-  // B5横は 257×182mm（168mm固定だと上が詰まり下だけ空く）。
-  const M=10; // 各控えの左右・上下余白(mm) ※切れ目側も同じ
+  // 【固定・変更禁止】2026-10-12 ユーザー確認済み。合意なく余白・用紙寸法・slot配置を変えない。
+  // 余白「なし」＋自前 inset 10mm ＝ブラウザ「最小」相当。半分切り後も各控えの左右対称。
+  // B5横は 257×182mm（168mmだと上が詰まり下だけ空く）。
+  const M=10; // LOCKED: 各控えの上下左右余白(mm)。切れ目側も同じ。
   const css=''
     +'*{box-sizing:border-box;margin:0;padding:0}'
     +'@page{size:B5 landscape;margin:0}'
