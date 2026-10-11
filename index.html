@@ -4188,12 +4188,13 @@ function renderPrintModal(directPrint){
       ${block(p.items,p.showTotal,p.showBiko,p.label,true)}
     </div>`).join("");
 
-  // 印刷用HTML（print-area）
+  // 印刷用HTML（print-area）— 中央破線で半分に切ったあと、各控えの左右余白が同じになるよう各半分を均等パディング
   const printHtml=pages.map((p,pi)=>`
-    <div class="slot">${block(p.items,p.showTotal,p.showBiko,p.label,false)}</div>
-    <div class="dv"><div style="border-left:1px dashed #aaa;height:100%"></div></div>
-    <div class="slot">${block(p.items,p.showTotal,p.showBiko,p.label,true)}</div>
-    `).join("");
+    <div class="sheet">
+      <div class="slot left"><div class="slot-inner">${block(p.items,p.showTotal,p.showBiko,p.label,false)}</div></div>
+      <div class="slot right"><div class="slot-inner">${block(p.items,p.showTotal,p.showBiko,p.label,true)}</div></div>
+      <div class="cut" aria-hidden="true"></div>
+    </div>`).join("");
 
   // print-area をbody直下に設置
   let pa=document.getElementById("print-area");
@@ -4250,19 +4251,24 @@ function doPrint(){
   const pa=document.getElementById("print-area");
   if(!pa)return;
   const inner=pa.innerHTML;
+  // 用紙中央で半分に切ったあと、各控えの「外端〜内容」「切れ目〜内容」が同じになるよう、
+  // 各半分(50%)に左右同じパディングを入れ、切れ目は用紙ど真ん中の線のみにする。
   const css=''
     +'*{box-sizing:border-box;margin:0;padding:0}'
     +'@page{size:257mm 168mm landscape;margin:0}'
     +'html,body{margin:0;padding:0;width:257mm;height:168mm;overflow:hidden;background:#fff;-webkit-print-color-adjust:exact;font-family:"MS Mincho",serif}'
-    +'.wrap{position:absolute;top:0;left:0;width:257mm;height:168mm;overflow:hidden}'
-    +'.inner{position:absolute;top:0;left:0;width:257mm;height:168mm;transform:translate(10.3mm,9.7mm) scale(0.92);transform-origin:top left;display:flex}'
-    +'.slot{flex:1;min-width:0;max-width:calc(50% - 10px);padding:1mm 3mm}'
-    +'.dv{flex:0 0 39px;width:39px;display:flex;align-items:center;justify-content:center}'
+    +'.sheet{position:relative;width:257mm;height:168mm;overflow:hidden;page-break-after:always}'
+    +'.sheet:last-child{page-break-after:auto}'
+    +'.slot{position:absolute;top:0;bottom:0;width:50%;padding:5mm 5mm;overflow:hidden}'
+    +'.slot.left{left:0}'
+    +'.slot.right{left:50%}'
+    +'.slot-inner{width:100%;height:100%;transform:scale(0.96);transform-origin:center center}'
+    +'.cut{position:absolute;left:50%;top:0;bottom:0;width:0;border-left:1px dashed #aaa;transform:translateX(-0.5px);z-index:2;pointer-events:none}'
     +'table{table-layout:fixed;width:100%;border-collapse:collapse}'
     +'tbody tr{height:9mm}'
     +'thead th{padding:2px 4px}';
   const html='<!DOCTYPE html><html><head><meta charset="UTF-8"><style>'+css+'</style></head>'
-    +'<body><div class="wrap"><div class="inner">'+inner+'</div></div></body></html>';
+    +'<body>'+inner+'</body></html>';
   const ifr=document.createElement("iframe");
   ifr.style.cssText="position:fixed;top:-9999px;left:-9999px;width:257mm;height:168mm;border:none;";
   document.body.appendChild(ifr);
