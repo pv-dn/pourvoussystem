@@ -4212,7 +4212,7 @@ function renderPrintModal(directPrint){
       <button class="btn-primary" style="padding:10px 28px;font-size:15px" onclick="doPrint()">印刷（B5横）</button>
     </div>
     ${previewHtml}
-    <div style="margin-top:12px;font-size:13px;color:#c00;text-align:center;font-weight:600">⚠️ 印刷設定：用紙B5・横向き・<u>余白「なし」</u> を必ず選択してください</div>
+    <div style="margin-top:12px;padding:10px 12px;background:#fff5f5;border:1px solid #ef9a9a;border-radius:8px;font-size:13px;color:#b71c1c;text-align:center;font-weight:600;line-height:1.6">⚠️ 印刷ダイアログで必ず　用紙サイズ「B5」　／　レイアウト「横向き」　／　余白「なし」<br><span style="font-weight:500;font-size:12px">※ A4のままだと左寄り・余白が均等に見えません</span></div>
   </div>`;
 }
 function downloadCSV(inv){
@@ -4251,23 +4251,24 @@ function doPrint(){
   const pa=document.getElementById("print-area");
   if(!pa)return;
   const inner=pa.innerHTML;
-  // 用紙中央で半分に切ったあと、各控えの「外端〜内容」「切れ目〜内容」が同じになるよう、
-  // 各半分(50%)に左右同じパディングを入れ、切れ目は用紙ど真ん中の線のみにする。
+  // B5横(257×168)を前提。中央破線で半分に切ったあと、各控えの左右余白が同じになるよう
+  // 各半分ちょうど50%＋左右同じパディング。切れ目は用紙中央の線のみ（幅を取らない）。
   const css=''
     +'*{box-sizing:border-box;margin:0;padding:0}'
-    +'@page{size:257mm 168mm landscape;margin:0}'
-    +'html,body{margin:0;padding:0;width:257mm;height:168mm;overflow:hidden;background:#fff;-webkit-print-color-adjust:exact;font-family:"MS Mincho",serif}'
-    +'.sheet{position:relative;width:257mm;height:168mm;overflow:hidden;page-break-after:always}'
+    +'@page{size:B5 landscape;margin:0}'
+    +'@page{size:257mm 168mm;margin:0}'
+    +'html,body{margin:0;padding:0;width:257mm;height:168mm;overflow:hidden;background:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact;font-family:"MS Mincho",serif}'
+    +'.sheet{position:relative;width:257mm;height:168mm;overflow:hidden;page-break-after:always;page-break-inside:avoid}'
     +'.sheet:last-child{page-break-after:auto}'
-    +'.slot{position:absolute;top:0;bottom:0;width:50%;padding:5mm 5mm;overflow:hidden}'
+    +'.slot{position:absolute;top:0;bottom:0;width:50%;padding:3mm 4mm;overflow:hidden}'
     +'.slot.left{left:0}'
     +'.slot.right{left:50%}'
-    +'.slot-inner{width:100%;height:100%;transform:scale(0.96);transform-origin:center center}'
-    +'.cut{position:absolute;left:50%;top:0;bottom:0;width:0;border-left:1px dashed #aaa;transform:translateX(-0.5px);z-index:2;pointer-events:none}'
+    +'.slot-inner{width:100%;height:100%}'
+    +'.cut{position:absolute;left:50%;top:0;bottom:0;width:0;border-left:1px dashed #999;transform:translateX(-0.5px);z-index:2;pointer-events:none}'
     +'table{table-layout:fixed;width:100%;border-collapse:collapse}'
     +'tbody tr{height:9mm}'
     +'thead th{padding:2px 4px}';
-  const html='<!DOCTYPE html><html><head><meta charset="UTF-8"><style>'+css+'</style></head>'
+  const html='<!DOCTYPE html><html><head><meta charset="UTF-8"><title>納品書印刷（B5横・余白なし）</title><style>'+css+'</style></head>'
     +'<body>'+inner+'</body></html>';
   const ifr=document.createElement("iframe");
   ifr.style.cssText="position:fixed;top:-9999px;left:-9999px;width:257mm;height:168mm;border:none;";
@@ -4276,6 +4277,7 @@ function doPrint(){
   doc.open();
   doc.write(html);
   doc.close();
+  showToast("印刷設定で「用紙B5」「横向き」「余白なし」を選んでください","error");
   setTimeout(function(){
     ifr.contentWindow.focus();
     ifr.contentWindow.onafterprint=function(){
