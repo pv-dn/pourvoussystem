@@ -4251,7 +4251,7 @@ function doPrint(){
   const pa=document.getElementById("print-area");
   if(!pa)return;
   const inner=pa.innerHTML;
-  // ブラウザ余白「なし」＋B5横。各控えは用紙端・切れ目・上下から必ず5mm離す（paddingではなく inset で確保）。
+  // ブラウザ余白「なし」＋B5横。上・横は8mm、下は5mm（paddingではなく inset で確保）。
   const css=''
     +'*{box-sizing:border-box;margin:0;padding:0}'
     +'@page{size:B5 landscape;margin:0}'
@@ -4259,9 +4259,9 @@ function doPrint(){
     +'html,body{margin:0;padding:0;width:257mm;height:168mm;overflow:hidden;background:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact;font-family:"MS Mincho",serif}'
     +'.sheet{position:relative;width:257mm;height:168mm;overflow:hidden;page-break-after:always;page-break-inside:avoid}'
     +'.sheet:last-child{page-break-after:auto}'
-    +'.slot{position:absolute;top:5mm;bottom:5mm;width:calc(50% - 10mm);overflow:hidden;display:flex;align-items:stretch;justify-content:stretch}'
-    +'.slot.left{left:5mm}'
-    +'.slot.right{left:calc(50% + 5mm)}'
+    +'.slot{position:absolute;top:8mm;bottom:5mm;width:calc(50% - 16mm);overflow:hidden;display:flex;align-items:stretch;justify-content:stretch}'
+    +'.slot.left{left:8mm}'
+    +'.slot.right{left:calc(50% + 8mm)}'
     +'.slot-inner{width:100%;height:100%;min-width:0;min-height:0;display:flex;flex-direction:column}'
     +'.slot-inner>div{width:100%!important;height:100%!important;min-width:0!important;min-height:0!important;padding:0!important;flex:1;display:flex;flex-direction:column}'
     +'.slot-inner table{height:auto!important;flex:1 1 auto}'
