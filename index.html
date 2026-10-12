@@ -4251,20 +4251,17 @@ function doPrint(){
   const pa=document.getElementById("print-area");
   if(!pa)return;
   const inner=pa.innerHTML;
-  // 【固定・変更禁止】2026-10-12 ユーザー確認済み。合意なく余白・用紙寸法・slot配置を変えない。
-  // 余白「なし」＋自前 inset 10mm ＝ブラウザ「最小」相当。半分切り後も各控えの左右対称。
-  // B5横は 257×182mm（168mmだと上が詰まり下だけ空く）。
-  const M=10; // LOCKED: 各控えの上下左右余白(mm)。切れ目側も同じ。
+  // 【印刷余白】B5横・余白なし。左右とも幅50%＋同じ padding → 半分切り後に左右対称。
+  // M=10mm は「最小」相当（2026-10-12）。対称が崩れたら配置方式を直す（余白値は維持）。
+  const M=10;
   const css=''
     +'*{box-sizing:border-box;margin:0;padding:0}'
-    +'@page{size:B5 landscape;margin:0}'
     +'@page{size:257mm 182mm;margin:0}'
     +'html,body{margin:0;padding:0;width:257mm;height:182mm;overflow:hidden;background:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact;font-family:"MS Mincho",serif}'
-    +'.sheet{position:relative;width:257mm;height:182mm;overflow:hidden;page-break-after:always;page-break-inside:avoid}'
+    +'.sheet{display:flex;flex-direction:row;flex-wrap:nowrap;align-items:stretch;position:relative;width:257mm;height:182mm;margin:0;padding:0;overflow:hidden;page-break-after:always;page-break-inside:avoid}'
     +'.sheet:last-child{page-break-after:auto}'
-    +'.slot{position:absolute;top:'+M+'mm;bottom:'+M+'mm;width:calc(50% - '+ (M*2) +'mm);overflow:hidden;display:flex;align-items:stretch;justify-content:stretch}'
-    +'.slot.left{left:'+M+'mm}'
-    +'.slot.right{left:calc(50% + '+M+'mm)}'
+    /* 左右とも「用紙の半分」を同じ箱にし、箱の内側余白だけ等しくする（絶対配置+calcは用紙ずれで非対称になりやすい） */
+    +'.slot{flex:0 0 50%;width:50%;max-width:50%;height:100%;margin:0;padding:'+M+'mm;overflow:hidden;display:flex;align-items:stretch;justify-content:stretch}'
     +'.slot-inner{width:100%;height:100%;min-width:0;min-height:0;display:flex;flex-direction:column}'
     +'.slot-inner>div{width:100%!important;height:100%!important;min-width:0!important;min-height:0!important;padding:0!important;flex:1;display:flex;flex-direction:column}'
     +'.slot-inner table{height:auto!important;flex:1 1 auto}'
