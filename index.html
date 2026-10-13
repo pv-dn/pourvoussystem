@@ -4177,18 +4177,17 @@ function renderPrintModal(directPrint){
     }
   }
 
-  const div=s=>`<div style="width:20px;min-width:20px;display:flex;align-items:center;justify-content:center"><div style="border-left:1px dashed #aaa;height:100%"></div></div>`;
-
-  // プレビュー用HTML
+  // プレビューも印刷と同じ：左右50%＋周囲10mm（半分切り後の上下左右10mmを画面でも確認できるように）
   const previewHtml=pages.map((p,pi)=>`
     ${pi>0?`<div style="margin-top:24px;border-top:2px dashed #ccc;padding-top:16px;font-size:12px;color:#888;text-align:center">── 2枚目 ──</div>`:""}
-    <div style="display:flex;gap:0;background:#fff;width:100%;box-sizing:border-box">
-      ${block(p.items,p.showTotal,p.showBiko,p.label,false)}
-      ${div()}
-      ${block(p.items,p.showTotal,p.showBiko,p.label,true)}
-    </div>`).join("");
+    <div style="position:relative;display:flex;flex-direction:row;width:100%;aspect-ratio:257/182;background:#fff;border:1px solid #ccc;box-sizing:border-box;overflow:hidden">
+      <div style="flex:0 0 50%;width:50%;box-sizing:border-box;padding:10mm;overflow:hidden">${block(p.items,p.showTotal,p.showBiko,p.label,false)}</div>
+      <div style="flex:0 0 50%;width:50%;box-sizing:border-box;padding:10mm;overflow:hidden">${block(p.items,p.showTotal,p.showBiko,p.label,true)}</div>
+      <div style="position:absolute;left:50%;top:0;bottom:0;border-left:1px dashed #999;transform:translateX(-0.5px);pointer-events:none" aria-hidden="true"></div>
+    </div>
+    <div style="margin-top:6px;font-size:11px;color:#888;text-align:center">破線で半分に切ると、各控えの上下左右余白がすべて約10mmになります</div>`).join("");
 
-  // 印刷用HTML（print-area）— 中央破線で半分に切ったあと、各控えの左右余白が同じになるよう各半分を均等パディング
+  // 印刷用HTML（print-area）— 半分切り後、各控えの上下左右がすべて10mm
   const printHtml=pages.map((p,pi)=>`
     <div class="sheet">
       <div class="slot left"><div class="slot-inner">${block(p.items,p.showTotal,p.showBiko,p.label,false)}</div></div>
@@ -4251,32 +4250,25 @@ function doPrint(){
   const pa=document.getElementById("print-area");
   if(!pa)return;
   const inner=pa.innerHTML;
-  // 目標: B5横を中央で半分に切ったあと、各控えの上下左右余白がすべて 10mm。
-  // JIS-B5 = 257×182mm。半分幅 128.5mm。各控えの中身は 108.5×162mm（周囲 10mm）。
+  // 半分切り後の各控え: 上下左右すべて 10mm。
+  // 用紙は JIS-B5。中身は用紙の100%を左右半分にし、各半分に同じ padding:10mm。
   const M=10;
-  const PAGE_W=257;
-  const PAGE_H=182;
-  const HALF=PAGE_W/2; // 128.5
-  const SLOT_W=HALF-(M*2); // 108.5
-  const SLOT_H=PAGE_H-(M*2); // 162
+  const VER="20261013c";
   const css=''
     +'*{box-sizing:border-box;margin:0;padding:0}'
     +'@page{size:JIS-B5 landscape;margin:0}'
-    +'@page{size:'+PAGE_W+'mm '+PAGE_H+'mm;margin:0}'
-    +'html,body{margin:0;padding:0;width:'+PAGE_W+'mm;height:'+PAGE_H+'mm;overflow:hidden;background:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact;font-family:"MS Mincho",serif}'
-    +'.sheet{position:relative;width:'+PAGE_W+'mm;height:'+PAGE_H+'mm;margin:0;padding:0;overflow:hidden;page-break-after:always;page-break-inside:avoid}'
+    +'html,body{margin:0;padding:0;width:100%;height:100%;overflow:hidden;background:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact;font-family:"MS Mincho",serif}'
+    +'.sheet{display:flex;flex-direction:row;flex-wrap:nowrap;position:relative;width:100%;height:100%;min-height:100vh;margin:0;padding:0;overflow:hidden;page-break-after:always;page-break-inside:avoid}'
     +'.sheet:last-child{page-break-after:auto}'
-    +'.slot{position:absolute;top:'+M+'mm;width:'+SLOT_W+'mm;height:'+SLOT_H+'mm;overflow:hidden;display:flex;align-items:stretch;justify-content:stretch}'
-    +'.slot.left{left:'+M+'mm}'
-    +'.slot.right{left:'+(HALF+M)+'mm}'
+    +'.slot{flex:0 0 50%;width:50%;max-width:50%;height:100%;margin:0;padding:'+M+'mm;overflow:hidden;display:flex;align-items:stretch;justify-content:stretch}'
     +'.slot-inner{width:100%;height:100%;min-width:0;min-height:0;display:flex;flex-direction:column}'
-    +'.slot-inner>div{width:100%!important;height:100%!important;min-width:0!important;min-height:0!important;padding:0!important;flex:1;display:flex;flex-direction:column}'
+    +'.slot-inner>div{width:100%!important;height:100%!important;min-width:0!important;min-height:0!important;padding:0!important;margin:0!important;flex:1;display:flex;flex-direction:column}'
     +'.slot-inner table{height:auto!important;flex:1 1 auto}'
-    +'.cut{position:absolute;left:'+HALF+'mm;top:0;bottom:0;width:0;border-left:1px dashed #999;transform:translateX(-0.5px);z-index:2;pointer-events:none}'
+    +'.cut{position:absolute;left:50%;top:0;bottom:0;width:0;border-left:1px dashed #999;transform:translateX(-0.5px);z-index:2;pointer-events:none}'
     +'table{table-layout:fixed;width:100%;border-collapse:collapse}'
     +'tbody tr{height:9mm}'
     +'thead th{padding:2px 4px}';
-  const html='<!DOCTYPE html><html><head><meta charset="UTF-8"><title>納品書印刷（JIS B5横・余白10mm）</title><style>'+css+'</style></head>'
+  const html='<!DOCTYPE html><html><head><meta charset="UTF-8"><title>納品書 '+VER+'（半分切り後 上下左右10mm）</title><style>'+css+'</style></head>'
     +'<body>'+inner+'</body></html>';
   const w=window.open("","pourvous_print","width=960,height=700");
   if(!w){
@@ -4287,12 +4279,12 @@ function doPrint(){
   w.document.open();
   w.document.write(html);
   w.document.close();
-  showToast("印刷設定で「用紙B5」「横向き」「余白なし」を選んでください","error");
+  showToast("印刷設定で「用紙B5」「横向き」「余白なし」→ タイトルに "+VER+" があれば最新です","error");
   setTimeout(function(){
     try{w.focus();}catch(e){}
     w.onafterprint=function(){try{w.close();}catch(e){} closePrint();};
     w.print();
-    setTimeout(function(){try{if(!w.closed)w.close();}catch(e){}},5000);
+    setTimeout(function(){try{if(!w.closed)w.close();}catch(e){}},8000);
   },500);
 }
 function closePrint(){state.showPrint=false;state.printInvoice=null;document.getElementById("print-modal").classList.add("hidden");document.getElementById("print-modal").innerHTML="";const pa=document.getElementById("print-area");if(pa)pa.remove();}
