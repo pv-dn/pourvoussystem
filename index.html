@@ -4212,7 +4212,7 @@ function renderPrintModal(directPrint){
       <button class="btn-primary" style="padding:10px 28px;font-size:15px" onclick="doPrint()">印刷（B5横）</button>
     </div>
     ${previewHtml}
-    <div style="margin-top:12px;padding:10px 12px;background:#fff5f5;border:1px solid #ef9a9a;border-radius:8px;font-size:13px;color:#b71c1c;text-align:center;font-weight:600;line-height:1.6">⚠️ 印刷ダイアログで必ず　用紙サイズ「B5」　／　レイアウト「横向き」　／　余白「なし」<br><span style="font-weight:500;font-size:12px">※「なし」で「最小」くらいの余白が入り、半分に切ったあと左右対称になります。A4のままだとずれます</span></div>
+    <div style="margin-top:12px;padding:10px 12px;background:#fff5f5;border:1px solid #ef9a9a;border-radius:8px;font-size:13px;color:#b71c1c;text-align:center;font-weight:600;line-height:1.6">⚠️ 印刷ダイアログで必ず　用紙サイズ「B5」　／　レイアウト「横向き」　／　余白「なし」<br><span style="font-weight:500;font-size:12px">※ A4や余白「最小」のままだと左寄りに見えます。必ず「なし」にしてください</span></div>
   </div>`;
 }
 function downloadCSV(inv){
@@ -4251,16 +4251,15 @@ function doPrint(){
   const pa=document.getElementById("print-area");
   if(!pa)return;
   const inner=pa.innerHTML;
-  // 【印刷余白】B5横・余白なし。左右とも幅50%＋同じ padding → 半分切り後に左右対称。
-  // M=10mm は「最小」相当（2026-10-12）。対称が崩れたら配置方式を直す（余白値は維持）。
+  // 左寄り対策: 固定mm幅ではなく用紙いっぱい(100%)。JIS-B5（日本のB5）。左右50%+同じpadding。
+  // M=10mm は「最小」相当。画面外iframeは左寄せされやすいので一時ウィンドウで印刷。
   const M=10;
   const css=''
     +'*{box-sizing:border-box;margin:0;padding:0}'
-    +'@page{size:257mm 182mm;margin:0}'
-    +'html,body{margin:0;padding:0;width:257mm;height:182mm;overflow:hidden;background:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact;font-family:"MS Mincho",serif}'
-    +'.sheet{display:flex;flex-direction:row;flex-wrap:nowrap;align-items:stretch;position:relative;width:257mm;height:182mm;margin:0;padding:0;overflow:hidden;page-break-after:always;page-break-inside:avoid}'
+    +'@page{size:JIS-B5 landscape;margin:0}'
+    +'html,body{margin:0;padding:0;width:100%;height:100%;overflow:hidden;background:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact;font-family:"MS Mincho",serif}'
+    +'.sheet{display:flex;flex-direction:row;flex-wrap:nowrap;align-items:stretch;position:relative;width:100%;height:100%;min-height:100vh;margin:0;padding:0;overflow:hidden;page-break-after:always;page-break-inside:avoid}'
     +'.sheet:last-child{page-break-after:auto}'
-    /* 左右とも「用紙の半分」を同じ箱にし、箱の内側余白だけ等しくする（絶対配置+calcは用紙ずれで非対称になりやすい） */
     +'.slot{flex:0 0 50%;width:50%;max-width:50%;height:100%;margin:0;padding:'+M+'mm;overflow:hidden;display:flex;align-items:stretch;justify-content:stretch}'
     +'.slot-inner{width:100%;height:100%;min-width:0;min-height:0;display:flex;flex-direction:column}'
     +'.slot-inner>div{width:100%!important;height:100%!important;min-width:0!important;min-height:0!important;padding:0!important;flex:1;display:flex;flex-direction:column}'
@@ -4269,25 +4268,24 @@ function doPrint(){
     +'table{table-layout:fixed;width:100%;border-collapse:collapse}'
     +'tbody tr{height:9mm}'
     +'thead th{padding:2px 4px}';
-  const html='<!DOCTYPE html><html><head><meta charset="UTF-8"><title>納品書印刷（B5横・余白なし）</title><style>'+css+'</style></head>'
+  const html='<!DOCTYPE html><html><head><meta charset="UTF-8"><title>納品書印刷（JIS B5横・余白なし）</title><style>'+css+'</style></head>'
     +'<body>'+inner+'</body></html>';
-  const ifr=document.createElement("iframe");
-  ifr.style.cssText="position:fixed;top:-9999px;left:-9999px;width:257mm;height:182mm;border:none;";
-  document.body.appendChild(ifr);
-  const doc=ifr.contentDocument||ifr.contentWindow.document;
-  doc.open();
-  doc.write(html);
-  doc.close();
+  const w=window.open("","pourvous_print","width=960,height=700");
+  if(!w){
+    showToast("印刷ウィンドウを許可してください（ポップアップブロックを解除）","error");
+    return;
+  }
+  try{w.opener=null;}catch(e){}
+  w.document.open();
+  w.document.write(html);
+  w.document.close();
   showToast("印刷設定で「用紙B5」「横向き」「余白なし」を選んでください","error");
   setTimeout(function(){
-    ifr.contentWindow.focus();
-    ifr.contentWindow.onafterprint=function(){
-      document.body.removeChild(ifr);
-      closePrint();
-    };
-    ifr.contentWindow.print();
-    setTimeout(function(){if(document.body.contains(ifr))document.body.removeChild(ifr);},3000);
-  },600);
+    try{w.focus();}catch(e){}
+    w.onafterprint=function(){try{w.close();}catch(e){} closePrint();};
+    w.print();
+    setTimeout(function(){try{if(!w.closed)w.close();}catch(e){}},5000);
+  },500);
 }
 function closePrint(){state.showPrint=false;state.printInvoice=null;document.getElementById("print-modal").classList.add("hidden");document.getElementById("print-modal").innerHTML="";const pa=document.getElementById("print-area");if(pa)pa.remove();}
 
