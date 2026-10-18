@@ -451,6 +451,7 @@ const TABS=["伝票発行","発行履歴","📊 売上統計","📂 データ","
 const DAY_NAMES=["日","月","火","水","木","金","土"];
 /** 更新情報: 機能更新と機能的なバグ修正のみ（文言調整・Tipsは載せない）。新しいものを先頭へ。 */
 const APP_UPDATES=[
+  {date:"2026-10-18",kind:"改善",title:"新規品目の読みは入力どおり",items:["商品の新規登録では、品名に入れた文字が読み欄にそのまま入る（カタカナはひらがなに）","辞書の自動推定は使わない。漢字のときは読みをひらがなに直す"]},
   {date:"2026-10-18",kind:"機能",title:"客先の品目マスタの並び替え",items:["客先詳細の品目・単価で▲▼を押して登録順を変えられる","保存すると伝票発行画面の品目の並びにも反映される"]},
   {date:"2026-10-17",kind:"改善",title:"漢字品目は読みの頭文字で分けられる",items:["あいうえお順・頭文字検索は、漢字も読み（ひらがな）の頭文字で分類","商品管理で読みを編集できる（空欄なら自動推定）","「他」に残った品目の一覧から読みを入れられる","布団・紅白幕・割烹着など、よく使う漢字の辞書を増やした"]},
   {date:"2026-10-17",kind:"機能",title:"品目の品番順・あいうえお順・頭文字検索",items:["伝票発行の「商品リストから追加」で品番順／あいうえお順を切替できる","頭文字（あかさたな／A〜Z・0-9）で絞り込み、品番・品名の文字検索もできる","商品管理・単価対応表・客先詳細の品目追加でも同じ操作ができる"]},
@@ -3202,10 +3203,10 @@ function renderProductTab(){
   if(state.showAddProduct&&!state.newProduct.code){state.newProduct.code=nextProductCode();}
   const addForm=state.showAddProduct?`<div class="card" style="background:#fffef7;margin-bottom:16px"><div style="display:grid;grid-template-columns:120px 1fr 1fr auto;gap:10px;align-items:end">
     <div><label class="lbl">商品コード（自動）</label><input value="${state.newProduct.code}" oninput="state.newProduct.code=this.value;updateNewProductDupHint()"></div>
-    <div><label class="lbl">品名</label><input placeholder="品名" value="${state.newProduct.name}" oninput="state.newProduct.name=this.value;if(!state.newProduct.yomiManual){state.newProduct.yomi=guessYomiFromName(this.value);const y=document.getElementById('new-product-yomi');if(y)y.value=state.newProduct.yomi;}updateNewProductDupHint()"></div>
+    <div><label class="lbl">品名</label><input placeholder="品名" value="${state.newProduct.name}" oninput="state.newProduct.name=this.value;if(!state.newProduct.yomiManual){state.newProduct.yomi=toHiraganaStr(this.value).replace(/[\\s　]+/g,'');const y=document.getElementById('new-product-yomi');if(y)y.value=state.newProduct.yomi;}updateNewProductDupHint()"></div>
     <div><label class="lbl">読み（ひらがな）</label><input id="new-product-yomi" placeholder="例: ゆかた" value="${state.newProduct.yomi||""}" oninput="state.newProduct.yomi=this.value;state.newProduct.yomiManual=true"></div>
     <button class="btn-primary" onclick="addProduct()">追加</button></div>
-    <div style="margin-top:6px;font-size:12px;color:#888">漢字の品目は「読み」の頭文字であかさたな分けします。空欄なら自動推定します。</div>
+    <div style="margin-top:6px;font-size:12px;color:#888">新規登録では、品名に入れた文字が読み欄にもそのまま入ります（カタカナはひらがなに）。漢字のときは読みをひらがなに直してください。</div>
     <div id="new-product-dup-hint" style="display:none;margin-top:10px;padding:8px 12px;background:#fff5f5;border:1px solid #ef9a9a;border-radius:6px;font-size:13px;color:#b71c1c;line-height:1.5"></div>
   </div>`:"";
   const otherList=productsInOtherInitial();
@@ -3270,7 +3271,7 @@ function addProduct(){
   if(!np.code||!np.name){showToast("コードと品名を入力","error");return;}
   const code=String(np.code).trim();
   const name=String(np.name).trim();
-  const yomi=toHiraganaStr(String(np.yomi||"").trim()).replace(/[\s　]+/g,"")||guessYomiFromName(name);
+  const yomi=toHiraganaStr(String(np.yomi||name).trim()).replace(/[\s　]+/g,"");
   if(state.products.find(p=>p.code===code)){showToast(`同じコードが既に登録されています（${code}）`,"error");updateNewProductDupHint();return;}
   const sameName=state.products.find(p=>String(p.name||"").trim()===name);
   if(sameName){showToast(`同じ品名が既に登録されています（${sameName.code}）`,"error");updateNewProductDupHint();return;}
