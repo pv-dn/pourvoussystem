@@ -4413,7 +4413,7 @@ function renderPrintModal(directPrint){
         <div style="font-size:22px;font-weight:700">${isCtrl?"受領書":"納品書"}${pageLabel?`<span style="font-size:13px;margin-left:8px">${pageLabel}</span>`:""}</div>
         <div style="font-size:15px">\u00a0\u00a0 № ${inv.invoiceNo}</div>
       </div>
-      <div style="border:${bdr};padding:0 8px;margin-bottom:2px;height:15mm;position:relative"><span style="font-size:${calcCustomerFontSize(inv.customer)}px;font-weight:700;white-space:normal;word-break:break-word;line-height:1.12;display:block;padding-right:92px;padding-top:2px">${inv.customer}</span><span style="position:absolute;top:2px;right:8px;white-space:nowrap;font-size:${calcCustomerFontSize(inv.customer)}px;font-weight:700">様</span><span style="position:absolute;right:8px;bottom:3px;font-size:11px;color:#333;white-space:nowrap">納品日　<strong style="font-size:13px">${fmtDate(inv.deliveryDate)}</strong></span></div>
+      <div class="cust-row" style="border:${bdr};padding:0 8px;margin-bottom:2px;height:15mm;min-height:15mm;flex:0 0 15mm;flex-shrink:0;box-sizing:border-box;position:relative;overflow:hidden"><span style="font-size:${calcCustomerFontSize(inv.customer)}px;font-weight:700;white-space:normal;word-break:break-word;line-height:1.12;display:block;padding-right:92px;padding-top:2px">${inv.customer}</span><span style="position:absolute;top:2px;right:8px;white-space:nowrap;font-size:${calcCustomerFontSize(inv.customer)}px;font-weight:700">様</span><span style="position:absolute;right:8px;bottom:3px;font-size:11px;color:#333;white-space:nowrap">納品日　<strong style="font-size:13px">${fmtDate(inv.deliveryDate)}</strong></span></div>
       <table style="width:100%;border-collapse:collapse;table-layout:fixed;height:105mm">
         <thead><tr>
           <th style="border:${bdr};padding:3px 6px;text-align:center;background:#f0f0f0;font-size:12px">品\u3000名</th>
@@ -4531,7 +4531,7 @@ function doPrint(){
   // 半分切り後の各控え: 上下左右すべて 10mm。
   // 用紙は JIS-B5。中身は用紙の100%を左右半分にし、各半分に同じ padding:10mm。
   const M=10;
-  const VER="20261013c";
+  const VER="20261026a";
   const css=''
     +'*{box-sizing:border-box;margin:0;padding:0}'
     +'@page{size:JIS-B5 landscape;margin:0}'
@@ -4541,7 +4541,8 @@ function doPrint(){
     +'.slot{flex:0 0 50%;width:50%;max-width:50%;height:100%;margin:0;padding:'+M+'mm;overflow:hidden;display:flex;align-items:stretch;justify-content:stretch}'
     +'.slot-inner{width:100%;height:100%;min-width:0;min-height:0;display:flex;flex-direction:column}'
     +'.slot-inner>div{width:100%!important;height:100%!important;min-width:0!important;min-height:0!important;padding:0!important;margin:0!important;flex:1;display:flex;flex-direction:column}'
-    +'.slot-inner table{height:auto!important;flex:1 1 auto}'
+    +'.slot-inner table{height:auto!important;flex:1 1 auto;min-height:0}'
+    +'.cust-row{height:15mm!important;min-height:15mm!important;flex:0 0 15mm!important;flex-shrink:0!important;overflow:hidden}'
     +'.cut{position:absolute;left:50%;top:0;bottom:0;width:0;border-left:1px dashed #999;transform:translateX(-0.5px);z-index:2;pointer-events:none}'
     +'table{table-layout:fixed;width:100%;border-collapse:collapse}'
     +'tbody tr{height:9mm}'
