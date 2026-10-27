@@ -451,6 +451,7 @@ const TABS=["伝票発行","発行履歴","📊 売上統計","📂 データ","
 const DAY_NAMES=["日","月","火","水","木","金","土"];
 /** 更新情報: 機能更新と機能的なバグ修正のみ（文言調整・Tipsは載せない）。新しいものを先頭へ。 */
 const APP_UPDATES=[
+  {date:"2026-10-28",kind:"機能",title:"備考の印刷文字サイズ",items:["伝票発行の備考で「小／標準／大／特大」を選べる","選んだサイズが納品書の備考に反映される（枠の高さは変えない）","未設定の古い伝票はこれまでどおり標準サイズ"]},
   {date:"2026-10-18",kind:"改善",title:"品目の読みは入力どおり（自動推定なし）",items:["新規・編集とも、品名に入れた文字が読み欄にそのまま入る（カタカナはひらがなに）","あかさたな分けは登録した読みだけを使う（辞書の自動推定はやめた）","漢字の品目は読みをひらがなで入れてください"]},
   {date:"2026-10-18",kind:"機能",title:"客先の品目マスタの並び替え",items:["客先詳細の品目・単価で▲▼を押して登録順を変えられる","保存すると伝票発行画面の品目の並びにも反映される"]},
   {date:"2026-10-17",kind:"改善",title:"漢字品目は読みの頭文字で分けられる",items:["あいうえお順・頭文字検索は、漢字も読み（ひらがな）の頭文字で分類","商品管理で読みを編集できる（空欄なら自動推定）","「他」に残った品目の一覧から読みを入れられる","布団・紅白幕・割烹着など、よく使う漢字の辞書を増やした"]},
@@ -538,7 +539,7 @@ let state={
   dataEditLogs:load("pv_data_edit_logs",[]),
   dismissedInvoiceGaps:load("pv_dismissed_invoice_gaps",[]),
   minG:load("pv_min",INIT_MIN),
-  issue:{customer:"",freeCustomer:false,deliveryDate:"",deliverySite:"",items:[],customItems:[{name:"",qty:"",price:""}],useCustom:false,customPanelOpen:false,memo:"",pendingId:null,allowSameDayExtra:false},
+  issue:{customer:"",freeCustomer:false,deliveryDate:"",deliverySite:"",items:[],customItems:[{name:"",qty:"",price:""}],useCustom:false,customPanelOpen:false,memo:"",memoFontSize:11.5,pendingId:null,allowSameDayExtra:false},
   correctingHistId:null,
   histSearch:"",
   custSearch:"",
@@ -985,6 +986,7 @@ function startHistCorrect(id){
   state.issue.allowSameDayExtra=false;
   state.issue.pendingId=null;
   state.issue.memo=h.memo||"";
+  state.issue.memoFontSize=resolveMemoFontSize(h.memoFontSize);
   state.issue.deliveryDate=toInput(h.deliveryDate instanceof Date?h.deliveryDate:new Date(h.deliveryDate));
   state.issue.deliverySite=h.deliverySite||(isKanagawaRodoCustomer(h.customer)?KANAGAWA_RODO_SITES[0]:"");
   const inMaster=(state.customers||[]).some(c=>c.name===h.customer);
@@ -1519,6 +1521,21 @@ function pendingIssueLineCount(p){
   (p.customItems||[]).forEach(i=>{if(i.name&&hasNonZeroQty(i.qty))n++;});
   return n;
 }
+const MEMO_FONT_SIZES=[
+  {label:"小",value:10},
+  {label:"標準",value:11.5},
+  {label:"大",value:13.5},
+  {label:"特大",value:15.5},
+];
+function resolveMemoFontSize(v){
+  const n=Number(v);
+  if(MEMO_FONT_SIZES.some(x=>x.value===n))return n;
+  return 11.5;
+}
+function setMemoFontSize(v){
+  state.issue.memoFontSize=resolveMemoFontSize(v);
+  render();
+}
 function snapshotPendingFromIssue(){
   return{
     customer:state.issue.customer,
@@ -1534,6 +1551,7 @@ function snapshotPendingFromIssue(){
     useCustom:!!state.issue.useCustom,
     customPanelOpen:!!state.issue.customPanelOpen,
     memo:state.issue.memo||"",
+    memoFontSize:resolveMemoFontSize(state.issue.memoFontSize),
     savedBy:window._userShortId||"",
     savedByName:window._userDisplayName||""
   };
@@ -1576,6 +1594,7 @@ async function saveIssueForLater(){
     state.issue.pendingId=null;
     if(free){
       state.issue.memo="";
+      state.issue.memoFontSize=11.5;
       state.issue.items=[];
       resetIssueCustomItems();
       state.issue.useCustom=true;
@@ -1608,7 +1627,9 @@ function openPendingIssue(id){
     useCustom:!!p.useCustom,
     customPanelOpen:!!p.customPanelOpen,
     memo:p.memo||"",
-    pendingId:p.id
+    memoFontSize:resolveMemoFontSize(p.memoFontSize),
+    pendingId:p.id,
+    allowSameDayExtra:false
   };
   state.tab=0;
   render();
@@ -1896,8 +1917,18 @@ function renderIssueTab(){
     </div>
     ${itemsHtml}
     <div style="margin-top:12px">
-      <label class="lbl">備考（印刷に反映されます）</label>
-      <textarea placeholder="自由に入力できます" oninput="state.issue.memo=this.value" style="width:100%;padding:9px 12px;border:1px solid #ddd;border-radius:8px;font-size:14px;resize:vertical;height:64px;line-height:1.6">${iss.memo||""}</textarea>
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-bottom:6px">
+        <label class="lbl" style="margin:0">備考（印刷に反映されます）</label>
+        <div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap">
+          <span style="font-size:12px;color:#888">文字サイズ</span>
+          ${MEMO_FONT_SIZES.map(s=>{
+            const cur=resolveMemoFontSize(iss.memoFontSize);
+            const on=cur===s.value;
+            return`<button type="button" onclick="setMemoFontSize(${s.value})" style="padding:4px 10px;border:1px solid ${on?"#1a1a2e":"#ddd"};border-radius:6px;background:${on?"#1a1a2e":"#fff"};color:${on?"#e8d5b7":"#333"};cursor:pointer;font-size:12px;font-weight:${on?"700":"500"}">${s.label}</button>`;
+          }).join("")}
+        </div>
+      </div>
+      <textarea placeholder="自由に入力できます" oninput="state.issue.memo=this.value" style="width:100%;padding:9px 12px;border:1px solid #ddd;border-radius:8px;font-size:${resolveMemoFontSize(iss.memoFontSize)}px;resize:vertical;min-height:64px;height:${Math.max(64,resolveMemoFontSize(iss.memoFontSize)*4.2)}px;line-height:1.5">${iss.memo||""}</textarea>
     </div>
     <div class="total-row">
       <div id="issue-mg-note">${mg>0&&sub>0&&sub<mg?`<div style="font-size:13px;color:#c17a00">小計 ${formatSignedYen(sub)} → 最低保証 ¥${mg.toLocaleString()} 適用</div>`:""}</div>
@@ -2178,6 +2209,7 @@ async function issueInvoice(){
       minGuarantee:mg,
       total,
       memo:state.issue.memo||"",
+      memoFontSize:resolveMemoFontSize(state.issue.memoFontSize),
       deliverySite:state.issue.deliverySite||"",
       correctedAt:nowCorrectionStamp(),
       correctedBy:window._userShortId||"",
@@ -2189,7 +2221,7 @@ async function issueInvoice(){
   }else{
     let id=Date.now();
     while(state.history.some(h=>h.id===id))id++;
-    inv={id,invoiceNo:nextInvoiceNo(invNoKey),customer:state.issue.customer,deliveryDate:state.issue.deliveryDate?fromInput(state.issue.deliveryDate):new Date(),issueDate:new Date(),items,subtotal:sub,minGuarantee:mg,total,memo:state.issue.memo||"",deliverySite:state.issue.deliverySite||"",issuedBy:window._userShortId||"",issuedByName:window._userDisplayName||""};
+    inv={id,invoiceNo:nextInvoiceNo(invNoKey),customer:state.issue.customer,deliveryDate:state.issue.deliveryDate?fromInput(state.issue.deliveryDate):new Date(),issueDate:new Date(),items,subtotal:sub,minGuarantee:mg,total,memo:state.issue.memo||"",memoFontSize:resolveMemoFontSize(state.issue.memoFontSize),deliverySite:state.issue.deliverySite||"",issuedBy:window._userShortId||"",issuedByName:window._userDisplayName||""};
   }
   window._issuingBusy=true;
   window._issuingInvoice=true;
@@ -2236,7 +2268,7 @@ async function issueInvoice(){
     }
     state.correctingHistId=null;
     state.issue.pendingId=null;
-    state.issue.freeCustomer=false;state.issue.memo="";
+    state.issue.freeCustomer=false;state.issue.memo="";state.issue.memoFontSize=11.5;
     state.issue.items=state.issue.items.map(i=>{
       const row={...i,qty:""};
       if(hasVariablePrice(i))row.price="";
@@ -4429,7 +4461,7 @@ function renderPrintModal(directPrint){
         <div style="padding:3px 10px;font-size:16px;font-weight:700;min-width:85px;text-align:right">${showTotal?formatSignedYen(totalVal):formatSignedYen(subtotal)}</div>
       </div>
       ${showTotal&&inv.minGuarantee>0&&inv.subtotal>0&&inv.subtotal<inv.minGuarantee?`<div style="font-size:10px;color:#888;text-align:right">（最低保証 ¥${inv.minGuarantee.toLocaleString()} 適用）</div>`:""}
-      ${showBiko?`<div style="border:${bdr};border-top:none;flex-shrink:0;min-height:59px;padding:2px 6px;margin-top:-1px"><div style="font-size:10px;color:#555;margin-bottom:1px">備\u3000考</div><div style="font-size:11.5px;line-height:1.5;white-space:pre-wrap">${inv.memo||"\u00a0"}</div></div>`:""}
+      ${showBiko?`<div style="border:${bdr};border-top:none;flex-shrink:0;min-height:59px;padding:2px 6px;margin-top:-1px"><div style="font-size:10px;color:#555;margin-bottom:1px">備\u3000考</div><div style="font-size:${resolveMemoFontSize(inv.memoFontSize)}px;line-height:1.5;white-space:pre-wrap">${inv.memo||"\u00a0"}</div></div>`:""}
       <div style="display:flex;justify-content:space-between;border:${bdr};border-top:none;height:19mm;margin-top:-1px">
         ${isCtrl?`<div style="border-right:${bdr};min-width:17mm;width:17mm;display:flex;flex-direction:column;align-items:center;justify-content:flex-start;padding-top:2px"><span style="font-size:9px">受領印</span></div>`:""}
         <div style="padding:2px 8px 2px 0;font-size:10.5px;line-height:1.3;text-align:right;white-space:nowrap;overflow:hidden;display:flex;flex-direction:column;justify-content:center;letter-spacing:-0.03em;flex:1">
@@ -4709,6 +4741,7 @@ window.markUnissuedNone=markUnissuedNone;
 window.cancelIssueNone=cancelIssueNone;
 window.saveIssueForLater=saveIssueForLater;
 window.openPendingIssue=openPendingIssue;
+window.setMemoFontSize=setMemoFontSize;
 window.deletePendingIssue=deletePendingIssue;
 window.startHistCorrect=startHistCorrect;
 window.cancelHistCorrect=cancelHistCorrect;
@@ -5632,7 +5665,8 @@ window._appStart = async function() {
   }catch{}
   try{applyShakoCustomerNameFix();}catch(e){console.warn("applyShakoCustomerNameFix",e);}
   try{await loadAdminPass();}catch(e){console.warn("loadAdminPass",e);}
-  if(!state.issue)state.issue={customer:"",freeCustomer:false,deliveryDate:"",deliverySite:"",items:[],customItems:[{name:"",qty:"",price:""}],useCustom:false,customPanelOpen:false,memo:"",pendingId:null};
+  if(!state.issue)state.issue={customer:"",freeCustomer:false,deliveryDate:"",deliverySite:"",items:[],customItems:[{name:"",qty:"",price:""}],useCustom:false,customPanelOpen:false,memo:"",memoFontSize:11.5,pendingId:null};
+  if(state.issue.memoFontSize==null)state.issue.memoFontSize=11.5;
   if(state.issue.pendingId===undefined)state.issue.pendingId=null;
   if(state.issue.deliverySite===undefined)state.issue.deliverySite="";
   if(!state.billingMonth){const d=new Date();state.billingMonth=d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0");}
